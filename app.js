@@ -3519,9 +3519,10 @@ async function addImportedBooks(results, shelf) {
       outline: (library.tabDefaults && library.tabDefaults.outline) || 'Outline'
     };
     let words = 0;
+    meta.chapterTitles = {};
     for (const ch of r.chapters) {
       const chId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-      const html = ch.map((p) => {
+      const html = ch.paras.map((p) => {
         if (p.scene) return '<p class="scene-break">***</p>';
         let text = escHtml(p.text || '');
         text = text.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
@@ -3530,8 +3531,9 @@ async function addImportedBooks(results, shelf) {
         return `<p>${text}</p>`;
       }).join('') || '<p><br></p>';
       await window.neo.writeChapter(meta.id, chId, html);
+      if (ch.title) meta.chapterTitles[chId] = ch.title;
       meta.chapterOrder.push(chId);
-      for (const p of ch) words += countWords(p.text || '');
+      for (const p of ch.paras) words += countWords(p.text || '');
     }
     meta.wordCount = words;
     await window.neo.writeBookMeta(meta.id, meta);

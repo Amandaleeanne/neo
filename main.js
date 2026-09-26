@@ -491,6 +491,12 @@ function docxFormatOn(rpr, tag) {
 // Convert one Word paragraph's bold/italic XML into markdown text with bold/italic
 function docxParagraphToMarkdown(p) {
   const pageBreak = /<w:br [^>]*w:type="page"/.test(p) || /<w:pageBreakBefore/.test(p);
+  // Word marks headings with a paragraph style such as <w:pStyle w:val="Heading1"/>.
+  // Any heading style (Heading1..9, or bare "Heading") starts a new chapter and
+  // gives it its title — regardless of locale, the underlying style id is
+  // always "Heading*".
+  const pStyle = (p.match(/<w:pStyle\s+w:val="([^"]*)"/) || [])[1] || '';
+  const heading = /^heading\d*$/i.test(pStyle);
   const runs = [...p.matchAll(/<w:r[ >][\s\S]*?<\/w:r>/g)].map((rm) => {
     const r = rm[0];
     const rpr = (r.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [''])[0];
@@ -511,7 +517,7 @@ function docxParagraphToMarkdown(p) {
     if (run.italic) t = '*' + t + '*';
     return t;
   }).join('').trim();
-  return { text, pageBreak };
+  return { text, pageBreak, heading };
 }
 
 async function importFile(fp) {
@@ -541,32 +547,49 @@ async function importFile(fp) {
   // Bare numbers only count as chapter markers when there's a ladder of them —
   // a story that merely OPENS with "Seven." keeps its seven.
   const numeralMode = paras.filter((p) => p.text && isNumeralish(p.text.trim())).length >= 2;
-  const isHeading = (t) => t && (
+  // A markdown heading: one or more "#" then text — any "size" (depth) counts.
+  const isMdHeading = (t) => /^#{1,6}\s+\S/.test(t);
+  const mdTitleOf = (t) => t.replace(/^#{1,6}\s*/, '').trim();
+  // A heading that is purely NEO's own numbering ("Chapter 2", "Prologue",
+  // bare "7") carries no title — NEO numbers chapters itself.
+  const isNumberedHeading = (t) => (
     (/^(chapter|prologue|epilogue|part)\b/i.test(t) && t.length < 60) ||
     (numeralMode && isNumeralish(t))
   );
+  const isHeading = (t) => t && (isMdHeading(t) || isNumberedHeading(t));
+  // The chapter title that a heading contributes. Markdown hashes and any
+  // emphasis markers are stripped, and pure numbering yields no title.
+  const titleOf = (t) => {
+    if (isMdHeading(t)) t = mdTitleOf(t);
+    t = t.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/_([^_]+)_/g, '$1');
+    return isNumberedHeading(t) ? '' : t;
+  };
   const isBreak = (t) => /^\s*([*#•~⁂—–-]\s*){1,7}$/.test(t || '');
 
   const chapterize = (usePageBreaks) => {
     const chapters = [];
     let cur = [];
+    let curTitle = '';
+    const close = () => {
+      if (cur.length) chapters.push({ title: curTitle, paras: cur });
+      cur = [];
+      curTitle = '';
+    };
     for (const p of paras) {
       const brk = usePageBreaks && p.pageBreak;
-      if (!p.text && !brk) continue;
-      if ((brk || isHeading(p.text)) && cur.length) {
-        chapters.push(cur);
-        cur = [];
-      }
-      if (isHeading(p.text)) continue; // the heading line itself is replaced by NEO's numbering
+      if (!p.text && !brk && !p.heading) continue;
+      const isH = p.heading || isHeading(p.text);
+      if (brk || isH) close();
+      if (isH) { curTitle = titleOf(p.text || ''); continue; } // the heading line is replaced by NEO's numbering
       if (isBreak(p.text)) { cur.push({ scene: true }); continue; }
       if (p.text) cur.push({ text: p.text });
     }
-    if (cur.length) chapters.push(cur);
+    close();
     return chapters;
   };
 
   const countAllWords = (list) =>
-    list.reduce((n, ch) => n + ch.reduce((m, p) => m + (p.text ? p.text.trim().split(/\s+/).length : 0), 0), 0);
+    list.reduce((n, ch) => n + ch.paras.reduce((m, p) => m + (p.text ? p.text.trim().split(/\s+/).length : 0), 0), 0);
 
   // First pass trusts page breaks. Some word processors sprinkle page-break
   // formatting on every paragraph, exploding a story into confetti — if the
@@ -575,7 +598,7 @@ async function importFile(fp) {
   if (chapters.length > 6 && countAllWords(chapters) / chapters.length < 250) {
     chapters = chapterize(false);
   }
-  if (!chapters.length) chapters.push([{ text: '' }]);
+  if (!chapters.length) chapters.push({ title: '', paras: [{ text: '' }] });
 
   // Front matter: a short title line and a "by Author" line belong on the
   // title page, not in the body. Detect, harvest, and remove them.
@@ -583,9 +606,9 @@ async function importFile(fp) {
   let author = null;
   const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
   const first = chapters[0];
-  if (first && first.length) {
-    const t0 = (first[0].text || '').trim();
-    const t1 = first.length > 1 ? (first[1].text || '').trim() : '';
+  if (first && first.paras.length) {
+    const t0 = (first.paras[0].text || '').trim();
+    const t1 = first.paras.length > 1 ? (first.paras[1].text || '').trim() : '';
     const titleish = t0 && t0.length < 90 && !/[.!?]$/.test(t0) && (
       (norm(t0).length > 3 && norm(name).includes(norm(t0))) ||
       /^by\s+\S/i.test(t1) ||
@@ -593,15 +616,15 @@ async function importFile(fp) {
     );
     if (titleish) {
       title = t0;
-      first.shift();
+      first.paras.shift();
     }
-    const bl = first.length ? (first[0].text || '').trim().match(/^by\s+(.{2,60})$/i) : null;
+    const bl = first.paras.length ? (first.paras[0].text || '').trim().match(/^by\s+(.{2,60})$/i) : null;
     if (bl) {
       author = bl[1].trim();
-      first.shift();
+      first.paras.shift();
     }
-    if (!first.length) chapters.shift();
-    if (!chapters.length) chapters.push([{ text: '' }]);
+    if (!first.paras.length) chapters.shift();
+    if (!chapters.length) chapters.push({ title: '', paras: [{ text: '' }] });
   }
 
   return { name, title, author, chapters };
