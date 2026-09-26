@@ -480,6 +480,40 @@ const decodeEntities = (s) => s
   .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
   .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 
+// Check if a formatting tag (<w:b>, <w:i>) is actually ON
+function docxFormatOn(rpr, tag) {
+  const hit = rpr.match(new RegExp('<' + tag + '(?:\\s[^>]*)?/?>'));
+  if (!hit) return false;
+  const val = (hit[0].match(/w:val="([^"]*)"/) || [])[1];
+  return val === undefined || /^(true|1|on)$/i.test(val);
+}
+
+// Convert one Word paragraph's bold/italic XML into markdown text with bold/italic
+function docxParagraphToMarkdown(p) {
+  const pageBreak = /<w:br [^>]*w:type="page"/.test(p) || /<w:pageBreakBefore/.test(p);
+  const runs = [...p.matchAll(/<w:r[ >][\s\S]*?<\/w:r>/g)].map((rm) => {
+    const r = rm[0];
+    const rpr = (r.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [''])[0];
+    const text = [...r.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
+      .map((t) => decodeEntities(t[1])).join('');
+    return { text, bold: docxFormatOn(rpr, 'w:b'), italic: docxFormatOn(rpr, 'w:i') };
+  });
+  // make sure **one**"+"**two**" becomes one "**onetwo**", not "**one****two**"
+  const merged = [];
+  for (const run of runs) {
+    const last = merged[merged.length - 1];
+    if (last && last.bold === run.bold && last.italic === run.italic) last.text += run.text;
+    else merged.push({ ...run });
+  }
+  const text = merged.map((run) => {
+    let t = run.text;
+    if (run.bold) t = '**' + t + '**';
+    if (run.italic) t = '*' + t + '*';
+    return t;
+  }).join('').trim();
+  return { text, pageBreak };
+}
+
 async function importFile(fp) {
   const name = path.basename(fp).replace(/\.[^.]+$/, '');
   const ext = path.extname(fp).toLowerCase();
@@ -491,16 +525,8 @@ async function importFile(fp) {
     const docFile = zip.file('word/document.xml');
     if (!docFile) throw new Error('Not a valid .docx: ' + fp);
     const xml = await docFile.async('string');
-    paras = [...xml.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)].map((m) => {
-      const p = m[0];
-      // <w:t> or <w:t attr...> ONLY — never <w:tab>/<w:tabs>, which share
-      // the same first letters and once leaked raw XML into a manuscript
-      const text = [...p.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
-        .map((t) => decodeEntities(t[1])).join('');
-      const pageBreak = /<w:br [^>]*w:type="page"/.test(p) || /<w:pageBreakBefore/.test(p);
-      return { text: text.trim(), pageBreak };
-    });
-  } else {
+    paras = [...xml.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)]
+      .map((m) => docxParagraphToMarkdown(m[0]));  } else {
     const raw = fs.readFileSync(fp, 'utf8');
     paras = raw.split(/\r?\n\s*\r?\n/)
       .map((b) => ({ text: b.replace(/\s*\r?\n\s*/g, ' ').trim(), pageBreak: false }))

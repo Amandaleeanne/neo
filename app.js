@@ -3521,9 +3521,14 @@ async function addImportedBooks(results, shelf) {
     let words = 0;
     for (const ch of r.chapters) {
       const chId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-      const html = ch.map((p) =>
-        p.scene ? '<p class="scene-break">***</p>' : `<p>${escHtml(p.text || '')}</p>`
-      ).join('') || '<p><br></p>';
+      const html = ch.map((p) => {
+        if (p.scene) return '<p class="scene-break">***</p>';
+        let text = escHtml(p.text || '');
+        text = text.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+                   .replace(/\*([^*]+)\*/g, '<i>$1</i>')
+                   .replace(/_([^_]+)_/g, '<i>$1</i>');
+        return `<p>${text}</p>`;
+      }).join('') || '<p><br></p>';
       await window.neo.writeChapter(meta.id, chId, html);
       meta.chapterOrder.push(chId);
       for (const p of ch) words += countWords(p.text || '');
