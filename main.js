@@ -1052,6 +1052,17 @@ function buildMenu() {
             if (w) w.setFullScreen(!w.isFullScreen());
           }
         },
+        {
+          label: 'Focus Mode',
+          submenu: [
+            { label: 'Cycle', accelerator: 'CmdOrCtrl+Shift+O', click: () => sendToWindow({ type: 'focusCycle' }) },
+            { type: 'separator' },
+            { label: 'Sentence', click: () => sendToWindow({ type: 'focus', value: 'sentence' }) },
+            { label: 'Paragraph', click: () => sendToWindow({ type: 'focus', value: 'paragraph' }) },
+            { label: 'Scene', click: () => sendToWindow({ type: 'focus', value: 'scene' }) },
+            { label: 'Off', click: () => sendToWindow({ type: 'focus', value: 'off' }) }
+          ]
+        },
         { type: 'separator' },
         {
           label: 'Page',
