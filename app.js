@@ -2121,31 +2121,47 @@ function smartKeys(e, body) {
   if (e.key === '"' || e.key === "'") {
     e.preventDefault();
     const before = prevChars(1);
-    const opening = before === '' || /[\s\(\[\{—‘“«>]/.test(before);
+    const opening = before === '' || /[\s\(\[\{—‘“«„>]/.test(before);
+    const q = quoteStyle();
     let ch;
-    if (french && e.key === "'") {
-      ch = '’'; // in French the apostrophe is always ’
-    } else if (french) {
-      // « guillemets » with narrow no-break spaces inside them
-      ch = opening ? '«\u202f' : '\u202f»';
+    if (e.key === "'") {
+      // most languages type ' as an apostrophe only; English and Dutch also
+      // open single quotes with it
+      ch = q.singles && opening ? '‘' : '’';
     } else {
-      ch = e.key === '"'
-        ? (opening ? '“' : '”')
-        : (opening ? '‘' : '’');
+      ch = opening ? q.open : q.close;
     }
     document.execCommand('insertText', false, ch);
   }
+}
+
+// The quotation marks of the language being written: the spellcheck
+// language when one is set, otherwise NEO's own language.
+const QUOTE_STYLES = {
+  en: { open: '“', close: '”', singles: true },
+  nl: { open: '“', close: '”', singles: true },
+  pt: { open: '“', close: '”', singles: true },          // Brazil
+  'pt-PT': { open: '«', close: '»' },
+  fr: { open: '«\u202f', close: '\u202f»' },             // narrow no-break spaces inside
+  es: { open: '«', close: '»' },                          // RAE: « » first
+  it: { open: '«', close: '»' },
+  de: { open: '„', close: '“' },
+  pl: { open: '„', close: '”' }
+};
+function writingLanguage() {
+  return (library && library.spellLanguage) || NeoI18n.getLocale();
+}
+function quoteStyle() {
+  const code = writingLanguage();
+  return QUOTE_STYLES[code] || QUOTE_STYLES[code.split('-')[0]] || QUOTE_STYLES.en;
 }
 
 // French typographic rules apply when the book is spellchecked in French,
 // or when NEO itself speaks French. Returns false, 'fr', or 'ca' for Quebec
 // usage (when the interface is set to Canadian French).
 function frenchTypography() {
-  const spell = (library && library.spellLanguage) || '';
-  const ui = NeoI18n.getLocale();
-  const on = spell ? spell.startsWith('fr') : ui.startsWith('fr');
-  if (!on) return false;
-  return /^fr-CA$/i.test(ui) ? 'ca' : 'fr';
+  if (!writingLanguage().startsWith('fr')) return false;
+  return /^fr-CA$/i.test(NeoI18n.getLocale()) ? 'ca' : 'fr';
 }
 
 // Titles, outline lines, notes and shelf names get the same typography as

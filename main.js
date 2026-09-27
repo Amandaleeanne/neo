@@ -681,6 +681,17 @@ function docxParagraphToMarkdown(p) {
   return { text, pageBreak, heading, title };
 }
 
+// Headings that are only NEO's own numbering, in the languages NEO speaks
+const CHAPTER_WORDS = new RegExp('^(' + [
+  'chapter', 'prologue', 'epilogue', 'part',                       // en
+  'chapitre', 'épilogue', 'partie',                                // fr
+  'capítulo', 'capitulo', 'prólogo', 'prologo', 'epílogo', 'epilogo', 'parte', // es, pt, it
+  'capitolo',                                                      // it
+  'kapitel', 'prolog', 'epilog', 'teil',                           // de
+  'hoofdstuk', 'proloog', 'epiloog', 'deel',                       // nl
+  'rozdział', 'rozdzial', 'część', 'czesc'                          // pl
+].join('|') + ')(?![\\p{L}\\d])', 'iu');
+
 async function importFile(fp) {
   const name = path.basename(fp).replace(/\.[^.]+$/, '');
   const ext = path.extname(fp).toLowerCase();
@@ -714,7 +725,7 @@ async function importFile(fp) {
   // A heading that is purely NEO's own numbering ("Chapter 2", "Prologue",
   // bare "7") carries no title — NEO numbers chapters itself.
   const isNumberedHeading = (t) => (
-    (/^(chapter|prologue|epilogue|part|chapitre|épilogue|partie)(?![\wÀ-ÿ])/i.test(t) && t.length < 60) ||
+    (CHAPTER_WORDS.test(t) && t.length < 60) ||
     (numeralMode && isNumeralish(t))
   );
   const isHeading = (t) => t && (isMdHeading(t) || isNumberedHeading(t));
@@ -783,22 +794,35 @@ async function importFile(fp) {
   let title = styledTitle || null;
   let author = null;
   const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // "by Jane Doe" — or its equivalent in another language. Those words also
+  // open ordinary sentences ("Par une nuit…", "Von Anfang an"), so outside
+  // English the rest must look like a name: capitalized words (name
+  // particles aside), no sentence punctuation.
+  const bylineOf = (s) => {
+    const en = s.match(/^by\s+(.{2,60})$/i);
+    if (en) return en[1];
+    const m = s.match(/^(?:par|por|von|di|door|autor:?)\s+(.{2,60})$/iu);
+    if (!m || /[.!?,;…]/.test(m[1])) return null;
+    const words = m[1].trim().split(/\s+/);
+    const particle = /^(de|da|di|do|dos|das|du|des|del|della|la|le|van|von|der|den|ten|ter|y|e)$/;
+    return words.length <= 5 && words.every((w) => /^\p{Lu}/u.test(w) || particle.test(w)) ? m[1] : null;
+  };
   const first = chapters[0];
   if (first && first.paras.length) {
     const t0 = (first.paras[0].text || '').trim();
     const t1 = first.paras.length > 1 ? (first.paras[1].text || '').trim() : '';
     const titleish = t0 && t0.length < 90 && !/[.!?]$/.test(t0) && (
       (norm(t0).length > 3 && norm(name).includes(norm(t0))) ||
-      /^(by|par)\s+\S/i.test(t1) ||
+      !!bylineOf(t1) ||
       (t0 === t0.toUpperCase() && /[A-Z].*[A-Z]/.test(t0) && t0.length < 60)
     );
     if (titleish) {
       title = t0;
       first.paras.shift();
     }
-    const bl = first.paras.length ? (first.paras[0].text || '').trim().match(/^(?:by|par)\s+(.{2,60})$/i) : null;
+    const bl = first.paras.length ? bylineOf((first.paras[0].text || '').trim()) : null;
     if (bl) {
-      author = bl[1].trim();
+      author = bl.trim();
       first.paras.shift();
     }
     if (!first.paras.length) chapters.shift();

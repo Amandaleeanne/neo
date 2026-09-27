@@ -1,5 +1,22 @@
 # Translating NEO
 
+NEO currently speaks:
+
+| Code | Language | Status |
+|---|---|---|
+| `en` | English | original |
+| `fr` | Français | complete, reviewed by a native speaker |
+| `fr-CA` | Français (Canada) | regional differences only |
+| `es` | Español | complete, machine-assisted: native review welcome |
+| `pt` | Português (Brasil) | complete, machine-assisted: native review welcome |
+| `pt-PT` | Português (Portugal) | regional differences only, machine-assisted |
+| `de` | Deutsch | complete, machine-assisted: native review welcome |
+| `it` | Italiano | complete, machine-assisted: native review welcome |
+| `nl` | Nederlands | complete, machine-assisted: native review welcome |
+| `pl` | Polski | complete, machine-assisted: native review welcome |
+
+If you speak one of these and something reads oddly, a pull request that fixes a line is the most welcome contribution there is.
+
 NEO's interface can be shown in any language. Each language is a single file in `locales/`, and adding one needs no programming.
 
 ## Add a language
@@ -38,6 +55,12 @@ So `fr-CA.json` is short: in Quebec, "courriel" instead of "e-mail", and no spac
 - **Numbers** are formatted for the language automatically (`1,234` in English, `1 234` in French).
 - **`&amp;`** appears in a few help strings that are shown as HTML. Keep it as `&amp;` (or rephrase without an ampersand).
 - **Keyboard keys** such as `⌘`, `⇧` or `Ctrl` are added by NEO; translate the words around them.
+
+## Typing in each language
+
+While writing, NEO sets the quotation marks of the language being written: the spellcheck language when one is chosen, otherwise NEO's own language. « » for French (with narrow no-break spaces), Spanish, Italian and European Portuguese; „ “ for German; „ ” for Polish; “ ” for English, Dutch and Brazilian Portuguese. The apostrophe is always ’. French also gets a narrow no-break space before ; : ! ? (before : only in Canadian French). The table is `QUOTE_STYLES` in `app.js`.
+
+Imports recognize chapter headings in all these languages (`CHAPTER_WORDS` in `main.js`), and cover titles treat each language's small words like "of" and "the" (`CONNECTORS` in `covers.js`).
 
 ## For developers
 

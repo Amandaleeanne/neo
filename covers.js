@@ -295,8 +295,16 @@ const NeoCovers = (() => {
   ];
 
   const CONNECTORS = new Set(['the', 'of', 'a', 'an', 'and', 'in', 'on', 'to', 'for', 'at', 'by', 'from', 'or', 'with', 'is', 'are', 'my', 'your', 'our', 'his', 'her', 'its',
-    // French small words, so French titles set as gracefully as English ones
-    'le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'et', 'en', 'au', 'aux', 'sur', 'pour', 'par', 'dans', 'ou', 'avec', 'mon', 'ma', 'mes', 'ton', 'ta', 'tes', 'son', 'sa', 'ses']);
+    // small words of the other languages NEO speaks, so their titles set as
+    // gracefully as English ones (accents are stripped before the lookup)
+    'le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'et', 'en', 'au', 'aux', 'sur', 'pour', 'par', 'dans', 'ou', 'avec', 'mon', 'ma', 'mes', 'ton', 'ta', 'tes', 'son', 'sa', 'ses', // fr
+    'el', 'los', 'las', 'del', 'y', 'una', 'con', 'por', 'sin', 'mi', 'tu', 'su', // es
+    'o', 'os', 'as', 'do', 'da', 'dos', 'das', 'e', 'em', 'um', 'uma', 'no', 'na', // pt
+    'der', 'die', 'das', 'und', 'von', 'im', 'ein', 'eine', 'des', 'dem', 'den', 'mit', 'zum', 'zur', // de
+    'il', 'lo', 'i', 'gli', 'di', 'della', 'dei', 'nel', 'nella', 'per', // it
+    'het', 'een', 'van', 'op', 'met', // nl
+    'w', 'z', 'na', 'do', 'ze', 'we' // pl
+  ]);
 
   // fonts must be in before anything is measured
   const ready = (typeof document !== 'undefined' && document.fonts)
