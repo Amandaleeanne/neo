@@ -2884,7 +2884,7 @@ function syncGhosts(chId) {
 }
 
 let auxDirty = false;
-$('#aux-editor').addEventListener('keydown', (e) => { styleKeepScroll(e); });
+$('#aux-editor').addEventListener('keydown', (e) => { if (styleKeepScroll(e)) return; smartKeys(e, e.currentTarget); });
 $('#aux-editor').addEventListener('input', () => {
   auxDirty = true;
   scheduleAuxSave();
