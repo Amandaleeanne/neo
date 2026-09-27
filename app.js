@@ -2187,7 +2187,13 @@ function focusSticky(sid) {
 /*  NAV PANE                                                           */
 /* ================================================================== */
 
+let chapterDragActive = false;
+let navRefreshPending = false;
+
 function renderNav() {
+  // Replacing the source row during a native drag can interrupt its lifecycle.
+  if (chapterDragActive) { navRefreshPending = true; return; }
+  navRefreshPending = false;
   const list = $('#nav-list');
   list.innerHTML = '';
   book.chapterNotes = book.chapterNotes || {};
@@ -2209,13 +2215,11 @@ function renderNav() {
     rowEl.draggable = true;
     rowEl.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData('application/x-neo-chapter', chId);
+      chapterDragActive = true;
+      $('#nav-pane').classList.add('open');
       item.classList.add('dragging');
     });
-    rowEl.addEventListener('dragend', () => {
-      item.classList.remove('dragging');
-      const ind = document.querySelector('.nav-drop-ind');
-      if (ind) ind.remove();
-    });
+    rowEl.addEventListener('dragend', finishChapterDrag);
 
     // outline your whole book from this panel:
     const note = document.createElement('div');
@@ -2250,6 +2254,26 @@ $('#nav-add').onclick = () => {
 
 // drop target for chapter reordering, with a gold line showing the landing spot
 const navList = $('#nav-list');
+function finishChapterDrag(e) {
+  if (!chapterDragActive) return;
+  chapterDragActive = false;
+  navList.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
+  const ind = navList.querySelector('.nav-drop-ind');
+  if (ind) ind.remove();
+  // Native dragging can temporarily blur the window. Use the release position
+  // to keep the pane available after an in-pane drop, even before focus returns.
+  const pane = $('#nav-pane');
+  const r = pane.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX >= r.right || e.clientY < r.top || e.clientY >= r.bottom) {
+    pane.classList.remove('open');
+  }
+  if (navRefreshPending) renderNav();
+}
+// Drop also cleans up if rendering removes the source before dragend bubbles.
+// Dragend covers Escape and releases outside a valid drop target.
+document.addEventListener('drop', finishChapterDrag);
+document.addEventListener('dragend', finishChapterDrag);
+
 function navDropInd() {
   let ind = document.querySelector('.nav-drop-ind');
   if (!ind) {
@@ -2314,7 +2338,8 @@ function scheduleNavRefresh() {
 
 // Hover behavior for both side panes:
 function wireHoverPane(hotzone, pane, isPinnable) {
-  const pinned = () => isPinnable && pane.dataset.pinned === '1';
+  const pinned = () => (isPinnable && pane.dataset.pinned === '1') ||
+    (pane.id === 'nav-pane' && chapterDragActive);
   hotzone.addEventListener('mouseenter', (e) => {
     if (e.buttons) return; // dragging something — stand down
     pane.classList.add('open');
@@ -2334,7 +2359,8 @@ wireHoverPane($('#side-hotzone'), $('#side-pane'), true);
 
 // leaving the window closes unpinned panes (they used to stick open)
 function closeUnpinnedPanes() {
-  $('#nav-pane').classList.remove('open');
+  // Wayland can blur the window as a native chapter drag begins.
+  if (!chapterDragActive) $('#nav-pane').classList.remove('open');
   if ($('#side-pane').dataset.pinned !== '1') $('#side-pane').classList.remove('open');
 }
 document.documentElement.addEventListener('mouseleave', closeUnpinnedPanes);
