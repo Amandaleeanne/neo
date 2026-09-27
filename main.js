@@ -1453,9 +1453,6 @@ app.whenReady().then(() => {
         // these two official switches remove the ones writers can't use here
         systemPreferences.setUserDefault('NSDisabledDictationMenuItem', 'boolean', true);
         systemPreferences.setUserDefault('NSDisabledCharacterPaletteMenuItem', 'boolean', true);
-        // …and "Enter Full Screen" into the View menu, next to NEO's own
-        // Full Screen item (⇧⌘F): one is enough
-        systemPreferences.setUserDefault('NSFullScreenMenuItemEverywhere', 'boolean', false);
       } catch (err) {
         logError('prefs', err);
       }
