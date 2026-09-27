@@ -2076,6 +2076,9 @@ function cleanPasteHtml(html) {
 
 // Em dash, ellipsis, smart quotes:
 function smartKeys(e, body) {
+  // a field can reach smartKeys twice (its own handler and the page-wide
+  // one below): the first pass wins
+  if (e.defaultPrevented) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.isComposing || e.keyCode === 229) return;
 
