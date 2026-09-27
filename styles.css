@@ -407,6 +407,16 @@ body.night #aux-editor * { color: inherit; }
 }
 /* typewriter scrolling: room below the last line so it can sit mid-screen */
 body.typewriter #paper { margin-bottom: 60vh; }
+/* focus mode: the manuscript fades back, the neo-focus highlight (set in
+   app.js) repaints the current sentence / paragraph / scene at full ink */
+.chapter-body, .chapter-head { transition: color 0.25s ease; }
+body.focus-mode .chapter-body,
+body.focus-mode .chapter-head { color: color-mix(in srgb, var(--ink) 28%, var(--paper)); }
+::highlight(neo-focus) { color: #1c1c1c; }
+body.night ::highlight(neo-focus) { color: #d6d2c6; }
+/* the drop cap sits outside the highlight's reach; same selector as the cap
+   itself so no other paragraph grows a ::first-letter */
+body.focus-mode .chapter-body.focus-cap:not(.cap-off) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter { color: var(--ink); }
 .sheet {
   background: var(--paper); color: var(--ink);
   padding: 70px 72px 90px;
