@@ -788,7 +788,8 @@ body.bright .spell-menu button { color: #eee; }
   margin: 16px 0 8px;
 }
 .help-grid {
-  display: grid; grid-template-columns: 110px 1fr; gap: 6px 16px;
+  /* the key column grows for languages with longer labels */
+  display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 6px 16px;
   font-size: 13.5px; line-height: 1.45; color: #bbb;
 }
 .help-grid .hk { color: #eee; font-weight: 600; white-space: nowrap; }

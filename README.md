@@ -71,6 +71,10 @@ Continuous autosave, daily zip backups kept for two weeks, everything stored as 
 
 Everything lives in `~/Documents/NEO Library` — one folder per book, chapters as readable HTML, metadata as JSON. Open them in your favorite text editor.
 
+## Languages
+
+NEO speaks English and French. Pick one under **View → Language**; on first launch NEO follows your system language when it has it. Adding a language is a single file, no programming needed: see [TRANSLATING.md](TRANSLATING.md).
+
 ## Building from source (for the eggheads):
 
 Requires [Node.js](https://nodejs.org).

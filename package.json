@@ -90,7 +90,9 @@
       "!dist/**",
       "!Backups/**",
       "!*.md",
-      "!.github/**"
+      "!.github/**",
+      "!scripts/**",
+      "!locales/_template.json"
     ]
   },
   "author": "Hugh Howey",
