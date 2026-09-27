@@ -799,9 +799,15 @@ ipcMain.on('poetry:state', (_e, on) => {
 
 function buildMenu() {
   const isMac = process.platform === 'darwin';
+  const isWin = process.platform === 'win32';
+  // macOS and Windows name faces that ship with the OS. Linux has none of
+  // them, so the menu names the faces bundled in fonts/ (see styles.css).
+  // The Windows list stays the one the renderer already understands.
   const bodyFonts = isMac
     ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style']
-    : ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia'];
+    : isWin
+      ? ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia']
+      : ['Gelasio', 'TeX Gyre Pagella', 'Libre Baskerville', 'Alegreya', 'Source Serif Pro'];
   const template = [
     // appMenu exists only on macOS — including it on Windows throws,
     // which is exactly what kept NEO from ever opening a window there
