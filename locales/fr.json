@@ -442,6 +442,7 @@
   "Zoom out": "Zoom arrière",
   "Zoom the page — text and column together ({key} resets)": "Zoome la page, texte et colonne ensemble ({key} pour réinitialiser)",
   "{h} am": "{h} h",
+  "{i} of {n}": "{i} sur {n}",
   "{name} key ({hint})": "Clé {name} ({hint})",
   "{n} / {goal} today": "{n} / {goal} aujourd’hui",
   "{n} books imported onto “{shelf}” — chapters and scene breaks detected": {

@@ -3737,7 +3737,7 @@ function gotoMatch(i) {
     const rect = m[searchState.idx].range.getBoundingClientRect();
     $('#paper-scroll').scrollTop += rect.top - window.innerHeight * 0.45;
   } catch { /* range collapsed by an edit; next search rebuilds */ }
-  $('#search-count').textContent = `${searchState.idx + 1} of ${m.length}`;
+  $('#search-count').textContent = t('{i} of {n}', { i: searchState.idx + 1, n: m.length });
 }
 
 function freshSearchIfStale() {

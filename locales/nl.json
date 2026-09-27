@@ -440,6 +440,7 @@
   "Zoom out": "Zoom uit",
   "Zoom the page — text and column together ({key} resets)": "Zoomt de pagina, tekst en kolom samen ({key} herstelt)",
   "{h} am": "{h}:00 uur",
+  "{i} of {n}": "{i} van {n}",
   "{name} key ({hint})": "{name}-sleutel ({hint})",
   "{n} / {goal} today": "{n} / {goal} vandaag",
   "{n} books imported onto “{shelf}” — chapters and scene breaks detected": {

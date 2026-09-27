@@ -463,6 +463,7 @@
   "Zoom out": "Pomniejsz",
   "Zoom the page — text and column together ({key} resets)": "Powiększa stronę, tekst i kolumnę razem ({key} przywraca)",
   "{h} am": "{h}:00",
+  "{i} of {n}": "{i} z {n}",
   "{name} key ({hint})": "Klucz {name} ({hint})",
   "{n} / {goal} today": "{n} / {goal} dzisiaj",
   "{n} books imported onto “{shelf}” — chapters and scene breaks detected": {

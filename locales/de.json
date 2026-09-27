@@ -440,6 +440,7 @@
   "Zoom out": "Verkleinern",
   "Zoom the page — text and column together ({key} resets)": "Zoomt die Seite, Text und Spalte zusammen ({key} setzt zurück)",
   "{h} am": "{h}:00 Uhr",
+  "{i} of {n}": "{i} von {n}",
   "{name} key ({hint})": "{name}-Schlüssel ({hint})",
   "{n} / {goal} today": "{n} / {goal} heute",
   "{n} books imported onto “{shelf}” — chapters and scene breaks detected": {
