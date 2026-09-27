@@ -137,6 +137,7 @@ function coverUrl(meta) {
 async function loadLibrary() {
   libraryDirPath = await window.neo.libraryPath();
   library = await window.neo.readLibrary();
+  if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
   if (!library.firstRunDone) {
     showFirstRun();
   }
@@ -155,6 +156,7 @@ function showFirstRun() {
       const pen = $('#fr-pen').value.trim();
       library.penNames = pen ? [pen] : [];
       library.writingStyle = btn.dataset.style;
+      if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
       $('#fr-step1').hidden = true;
       $('#fr-step2').hidden = false;
       buildFontStep();
@@ -2220,6 +2222,36 @@ function insertPlaceholder() {
   scheduleChapterSave(currentChapterId);
   renderStickies();
   scheduleNavRefresh();
+  // the caret lands in the note: type what needs doing, Enter brings you
+  // back to the page just past the flag (Shift+Enter for another line)
+  const pane = $('#side-pane');
+  pane.dataset.autoOpened = pane.classList.contains('open') ? '0' : '1';
+  focusSticky(sid);
+}
+
+// Back to the manuscript, caret just past the flag. Scrolls only when the
+// flag isn't already on screen, and from wherever the page is now.
+function returnToMark(sid) {
+  if (currentTab !== 'manuscript') switchTab('manuscript');
+  const mark = document.querySelector(`.ph-mark[data-sid="${sid}"]`);
+  if (!mark) return;
+  const bodyEl = mark.closest('.chapter-body');
+  const scroller = $('#paper-scroll');
+  const r = mark.getBoundingClientRect();
+  const sr = scroller.getBoundingClientRect();
+  if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (!bodyEl) return;
+  currentChapterId = bodyEl.closest('.chapter').dataset.id;
+  bodyEl.focus({ preventScroll: true });
+  const range = document.createRange();
+  const next = mark.nextSibling;
+  if (next && next.nodeType === Node.TEXT_NODE) range.setStart(next, Math.min(1, next.textContent.length));
+  else range.setStartAfter(mark);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  highlightNav();
 }
 
 function renderStickies() {
@@ -2246,11 +2278,15 @@ function renderStickies() {
       clearTimeout(saveTimers.stickies);
       saveTimers.stickies = setTimeout(() => window.neo.writeJSON(book.id, 'stickies', stickies), 600);
     });
-    el.querySelector('.s-go').onclick = () => {
-      switchTab('manuscript');
-      const mark = document.querySelector(`.ph-mark[data-sid="${s.id}"]`);
-      if (mark) mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    };
+    ta.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey) return; // Shift+Enter: another line in the note
+      e.preventDefault();
+      const pane = $('#side-pane');
+      if (pane.dataset.autoOpened === '1' && pane.dataset.pinned !== '1') pane.classList.remove('open');
+      pane.dataset.autoOpened = '0';
+      returnToMark(s.id);
+    });
+    el.querySelector('.s-go').onclick = () => returnToMark(s.id);
     el.querySelector('.s-done').onclick = () => resolveSticky(s.id);
     wrap.appendChild(el);
   }
@@ -3394,7 +3430,10 @@ async function refreshFromDisk() {
         const lib = await window.neo.readLibrary();
         if (lib && lib.firstRunDone && JSON.stringify(lib) !== JSON.stringify(library)) {
           library = lib;
-          renderShelves();
+          const shelf = $('#bookshelf-view');
+          const keep = shelf.scrollTop;
+          await renderShelves();
+          shelf.scrollTop = keep;
         }
       }
       return;
@@ -4162,7 +4201,7 @@ document.addEventListener('selectionchange', () => {
 });
 
 /* ================================================================== */
-/*  FOCUS MODE: dim everything but the sentence, paragraph or scene     */
+/*  FOCUS MODE: dim everything but the sentence or paragraph           */
 /* ================================================================== */
 // Painted with the CSS Custom Highlight API (like search and spellcheck),
 // so the manuscript DOM is never touched and nothing leaks into saved HTML.
@@ -4440,8 +4479,8 @@ function openStats() {
   const bd = document.createElement('div');
   bd.className = 'modal-backdrop';
   bd.innerHTML = `
-    <div class="modal" style="width:580px">
-      <h2 style="font-size:17px">${hasBook ? escHtml(book.title) + ' — progress' : 'Goals & settings'}</h2>
+    <div class="modal" style="width:${hasBook ? 580 : 380}px">
+      <h2 style="font-size:17px">${hasBook ? escHtml(book.title) + ' — progress' : 'Goals'}</h2>
       ${hasBook ? `
       <div class="stats-nums">
         <div><div class="big">${total.toLocaleString()}</div><div class="lbl">total words</div></div>
@@ -4449,14 +4488,14 @@ function openStats() {
         <div><div class="big">${book.wordGoal ? Math.min(100, Math.round(total / book.wordGoal * 100)) + '%' : '—'}</div><div class="lbl">of book goal</div></div>
       </div>
       ${statsChartSvg()}` : ''}
-      <div class="stats-row" style="margin-top:18px">
+      <div class="stats-row stats-goals" style="margin-top:${hasBook ? 18 : 6}px">
         <label>Daily goal <input id="st-daily" type="number" min="0" value="${library.dailyGoal || ''}" placeholder="500"/></label>
         ${hasBook ? `<label>Book goal <input id="st-book" type="number" min="0" value="${book.wordGoal || ''}" placeholder="80000"/></label>` : ''}
       </div>
-      <div class="stats-row">
-        <label>My writing day ends at
+      <div class="stats-row stats-goals">
+        <label>Day ends at
           <select id="st-dayends">
-            ${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}"${(library.dayEndsAt || 0) === h ? ' selected' : ''}>${h ? h + ' am' : 'midnight'}</option>`).join('')}
+            ${Array.from({ length: 24 }, (_, h) => `<option value="${h}"${(library.dayEndsAt || 0) === h ? ' selected' : ''}>${h === 0 ? 'midnight' : h === 12 ? 'noon' : h < 12 ? h + ' am' : (h - 12) + ' pm'}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -4464,16 +4503,7 @@ function openStats() {
       <div class="stats-row">
         <label>Sprint <input id="st-sprint" type="number" min="50" value="${sprint ? sprint.target : 500}"/> words</label>
         <button id="st-sprint-btn">${sprint && !sprint.done ? 'End sprint' : 'Start sprint'}</button>
-        <span id="st-sprint-info" class="soft">${sprint && !sprint.done ? 'sprint running…' : 'a small hill to charge up'}</span>
       </div>` : ''}
-      <div class="stats-row">
-        <label>New books open for a
-          <select id="st-style">
-            <option value="pantser"${library.writingStyle !== 'plotter' ? ' selected' : ''}>Pantser — straight to the blank page</option>
-            <option value="plotter"${library.writingStyle === 'plotter' ? ' selected' : ''}>Plotter — outline first</option>
-          </select>
-        </label>
-      </div>
       <div style="text-align:right;margin-top:14px">
         <button class="m-ok btn-gold">Done</button>
       </div>
@@ -4482,7 +4512,6 @@ function openStats() {
   const close = async () => {
     library.dailyGoal = parseInt(bd.querySelector('#st-daily').value, 10) || 0;
     library.dayEndsAt = parseInt(bd.querySelector('#st-dayends').value, 10) || 0;
-    library.writingStyle = bd.querySelector('#st-style').value;
     if (hasBook) {
       book.wordGoal = parseInt(bd.querySelector('#st-book').value, 10) || 0;
       scheduleMetaSave();
@@ -4551,6 +4580,7 @@ function applyFonts() {
   if (f.dropcap && DROPCAP_FONTS[f.dropcap]) {
     document.documentElement.style.setProperty('--dropcap-font', DROPCAP_FONTS[f.dropcap]);
   }
+  document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
   document.body.classList.toggle('bright', !!library.uiBright);
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
@@ -4712,7 +4742,7 @@ function showHelp() {
       <div class="help-grid">
         ${row(K('⌘⇧F', 'Ctrl+Shift+F'), 'Full screen (Esc leaves)')}
         ${row(K('⌘⇧T', 'Ctrl+Shift+T'), 'Typewriter scrolling')}
-        ${row(K('⌘⇧O', 'Ctrl+Shift+O'), 'Focus mode: off → scene → paragraph → sentence → off (View → Focus Mode picks one directly)')}
+        ${row(K('⌘⇧O', 'Ctrl+Shift+O'), 'Focus mode: off → paragraph → sentence → off (View → Focus Mode picks one directly)')}
         ${row(K('⌘;', 'Ctrl+;'), 'Spellcheck pass (right-click squiggles for fixes)')}
       </div>
 
@@ -4909,7 +4939,7 @@ function buildHtml(data, opts = {}) {
   .chapter h2 + p, .brk + p, .chapter p.first { text-indent: 0; }
   /* an in-flow raised initial: stays inside its word for copy, search,
      and screen readers, unlike a floated drop cap */
-  .chapter h2 + p:not(.poetry)::first-letter, .chapter p.first::first-letter { font-size: 1.8em; line-height: 1; }
+  ${(library.fonts || {}).dropcap === 'none' ? '' : '.chapter h2 + p:not(.poetry)::first-letter, .chapter p.first::first-letter { font-size: 1.8em; line-height: 1; }'}
   .brk { text-align: center; text-indent: 0 !important; letter-spacing: 8px; color: #888; margin: 2.5em 0; }
   .chapter p.poetry { text-indent: 0; margin: 0 2.5em; }
   .chapter p:not(.poetry) + p.poetry, .chapter h2 + p.poetry { margin-top: 0.9em; }
@@ -5380,6 +5410,11 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'focusCycle') cycleFocus();
   if (msg.type === 'import') importBooks();
   if (msg.type === 'stats') openStats();
+  if (msg.type === 'writingStyle') {
+    library.writingStyle = msg.value;
+    await window.neo.writeLibrary(library);
+    if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
+  }
   if (msg.type === 'coverArt') openCoverArt();
   if (msg.type === 'align') {
     applyAlign(msg.value);

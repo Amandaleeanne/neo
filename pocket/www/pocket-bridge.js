@@ -277,10 +277,13 @@
       } catch { console.error(msg); }
       showErrorDetail(msg);
     },
-    onMenu: () => { /* no menu bar in your pocket */ },
-    poetryState: () => { /* no Format menu to tick */ },
-    typewriterState: () => { /* likewise */ }
+    // no menu bar in your pocket: the ⋯ sheet (index.html) sends the same
+    // messages the desktop menus do, and the tick marks come back here
+    onMenu: (fn) => { window.pocketMenu = fn; },
+    poetryState: (on) => { window.pocketState.poetry = !!on; },
+    typewriterState: (on) => { window.pocketState.typewriter = !!on; }
   };
+  window.pocketState = { poetry: false, typewriter: false };
 
   // Pocket is written on a real keyboard, so Android's on-screen one stays
   // down: every editable field gets inputmode="none", which keeps the caret

@@ -72,8 +72,12 @@ is the On My iPad path).
 Working: bookshelf, opening books, writing (hardware keyboard), autosave to
 the shared library, pen-name switching, chapter list via the ☰ button or a
 swipe from the left edge, Notes & Comments via a swipe from the right edge.
-Android's bars stay hidden (swipe an edge to peek), the back gesture returns
-to the shelf, and the on-screen keyboard stays down — long-press ☰ to summon it.
+the ⋯ button for the desktop's Format and View choices (typeface, text
+size, drop cap, page, focus, typewriter, poetry) plus Goals. Android's bars
+stay hidden (swipe an edge to peek), the back gesture returns to the shelf,
+and on Android the on-screen keyboard stays down — long-press ☰ (or use the
+⋯ sheet) to summon it. On iPad the keyboard behaves normally and hides
+itself when a hardware keyboard is attached.
 
 Punch list, in rough order:
 - Verify pocket-v0.1.5 fixed: dead Shelf button + system bars overlapping
