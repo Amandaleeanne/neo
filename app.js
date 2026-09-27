@@ -1821,15 +1821,55 @@ document.addEventListener('selectionchange', () => {
   }
 });
 
-// Reduce pasted HTML to what a manuscript is made of: paragraphs, bold, italic.
+// Reduce pasted HTML to what a manuscript is made of: paragraphs, bold,
+// italic. Word, Apple Notes, Google Docs and browsers each dress a
+// paragraph differently — <p>, <div>, a line break inside a block, styled
+// spans — so every block boundary and <br> becomes a paragraph break, and
+// styling that only lives in a style attribute is read as bold/italic.
 function cleanPasteHtml(html) {
   const holder = document.createElement('div');
   holder.innerHTML = html;
-  holder.querySelectorAll('script,style,meta,link,img,table').forEach((n) => n.remove());
-  let blocks = [...holder.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6')];
-  if (!blocks.length) blocks = [holder]; // inline-only clipboard
-  const out = blocks.map((b) => {
-    const inner = paraRuns(b.innerHTML).map((r) => {
+  holder.querySelectorAll('script,style,meta,link,img,table,head,title').forEach((n) => n.remove());
+  // Google Docs wraps the whole clipboard in <b style="font-weight:normal">
+  holder.querySelectorAll('b, strong').forEach((b) => {
+    const w = (b.style && b.style.fontWeight || '').toLowerCase();
+    if (w === 'normal' || w === '400') { while (b.firstChild) b.before(b.firstChild); b.remove(); }
+  });
+  // styled spans: Word's italics and bold often live only in a style attribute
+  holder.querySelectorAll('span[style], font[style]').forEach((sp) => {
+    const st = sp.style;
+    const fw = (st.fontWeight || '').toLowerCase();
+    const bold = fw === 'bold' || fw === 'bolder' || parseInt(fw, 10) >= 600;
+    const ital = (st.fontStyle || '').toLowerCase() === 'italic';
+    if (bold) { const b = document.createElement('b'); while (sp.firstChild) b.appendChild(sp.firstChild); sp.appendChild(b); }
+    if (ital) { const i = document.createElement('i'); while (sp.firstChild) i.appendChild(sp.firstChild); sp.appendChild(i); }
+  });
+  // a break marker at every block edge and every line break
+  const BREAK = '\uE000';
+  const blocks = 'p, div, li, h1, h2, h3, h4, h5, h6, blockquote, pre, section, article, header, footer, tr, dd, dt';
+  holder.querySelectorAll(blocks).forEach((b) => {
+    b.before(document.createTextNode(BREAK));
+    b.after(document.createTextNode(BREAK));
+  });
+  holder.querySelectorAll('br').forEach((br) => br.replaceWith(document.createTextNode(BREAK)));
+
+  const paras = [[]];
+  for (const r of paraRuns(holder.innerHTML)) {
+    if (r.mark !== undefined) { paras[paras.length - 1].push(r); continue; }
+    const pieces = r.text.split(BREAK);
+    pieces.forEach((text, i) => {
+      if (i > 0) paras.push([]);
+      if (text) paras[paras.length - 1].push({ text, b: r.b, i: r.i });
+    });
+  }
+  const out = paras.map((runs) => {
+    // whitespace collapses like HTML's, and each paragraph is trimmed
+    runs = runs.map((r) => (r.mark !== undefined ? r : { ...r, text: r.text.replace(/\s+/g, ' ') }));
+    const first = runs.find((r) => r.mark === undefined);
+    if (first) first.text = first.text.replace(/^\s+/, '');
+    const last = [...runs].reverse().find((r) => r.mark === undefined);
+    if (last) last.text = last.text.replace(/\s+$/, '');
+    const inner = runs.map((r) => {
       if (r.mark !== undefined) {
         // placeholder marks travel with their text; reconcileMarks pairs
         // each one back up with a note after the paste lands
@@ -1837,12 +1877,13 @@ function cleanPasteHtml(html) {
           ? `<span class="ph-mark" data-sid="${escHtml(r.mark)}" contenteditable="false">⚑</span>`
           : '';
       }
+      if (!r.text) return '';
       let t = escHtml(r.text);
       if (r.i) t = '<i>' + t + '</i>';
       if (r.b) t = '<b>' + t + '</b>';
       return t;
     }).join('');
-    return inner.trim() ? '<p>' + inner + '</p>' : '';
+    return inner.replace(/<[^>]+>/g, '').trim() ? '<p>' + inner + '</p>' : '';
   }).filter(Boolean);
   // single block pastes inline (no forced new paragraph)
   if (out.length === 1) return out[0].slice(3, -4);
@@ -3578,7 +3619,9 @@ async function spellScanEl(el, key) {
   spellScanned.add(key);
   const occurrences = [];
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  const re = /[A-Za-z'’]+/g;
+  // letters of any alphabet, with their accents, so French and German
+  // words reach the dictionary whole
+  const re = /[\p{L}\p{M}'’]+/gu;
   let n;
   while ((n = walker.nextNode())) {
     const p = n.parentElement;
@@ -3588,7 +3631,7 @@ async function spellScanEl(el, key) {
     while ((m = re.exec(n.data))) {
       const word = spellNorm(m[0]);
       if (word.length < 2) continue;
-      if (/^[A-Z'’]+$/.test(m[0])) continue; // acronyms and shouting are legal
+      if (/^[\p{Lu}'’]+$/u.test(m[0])) continue; // acronyms and shouting are legal
       occurrences.push({ node: n, start: m.index, end: m.index + m[0].length, word });
     }
   }
@@ -3653,6 +3696,27 @@ function toggleSpellcheck() {
   toast(spellOn ? 'Spellcheck on' : 'Spellcheck off');
 }
 
+// Edit → Spellcheck Language: swap the dictionary, remember the choice with
+// the library, and re-check whatever is on screen
+const SPELL_LANGUAGE_NAMES = {
+  'en-US': 'US English', 'en-GB': 'UK English', 'en-CA': 'Canadian English',
+  'en-AU': 'Australian English', fr: 'French', es: 'Spanish', de: 'German'
+};
+async function changeSpellLanguage(code) {
+  const ok = await window.neo.setSpellLanguage(code);
+  if (!ok) { toast('That dictionary would not load'); return; }
+  library.spellLanguage = code;
+  await window.neo.writeLibrary(library);
+  spellCache.clear();
+  if (spellOn) {
+    spellScanned = new Set();
+    spellRanges = new Map();
+    CSS.highlights.delete('neo-spell');
+    scanSpellingHere();
+  }
+  toast('Spellcheck: ' + (SPELL_LANGUAGE_NAMES[code] || code));
+}
+
 // right-click a flagged word for suggestions
 document.addEventListener('contextmenu', async (e) => {
   if (!spellOn) return;
@@ -3662,7 +3726,7 @@ document.addEventListener('contextmenu', async (e) => {
   if (!pos || pos.startContainer.nodeType !== Node.TEXT_NODE) return;
   const node = pos.startContainer;
   const text = node.data;
-  const isW = (c) => /[A-Za-z'’]/.test(c);
+  const isW = (c) => /[\p{L}\p{M}'’]/u.test(c);
   let a = pos.startOffset, b = pos.startOffset;
   while (a > 0 && isW(text[a - 1])) a--;
   while (b < text.length && isW(text[b])) b++;
@@ -4283,11 +4347,19 @@ function exportChapters() {
 // The open book, packaged for the builders. Every builder takes an optional
 // data object in this shape, good for anthologies.
 function bookExportData() {
+  // an EPUB wants a real UUID as its identifier; the book gets one the first
+  // time it's exported and keeps it, so re-exports are the same book
+  if (!book.uuid) {
+    book.uuid = crypto.randomUUID();
+    saveMeta();
+  }
   return {
     id: book.id,
+    uuid: book.uuid,
     title: book.title,
     subtitle: book.subtitle,
-    author: book.author,
+    author: book.author || 'Anonymous', // the screen says so; the files should too
+    language: library.spellLanguage || 'en',
     coverSeed: book.coverSeed,
     coverImage: book.coverImage || null,
     sections: exportChapters()
@@ -4533,7 +4605,7 @@ ${paras}
 async function buildEpubEntries(data) {
   const d = data || bookExportData();
   const chapters = d.sections;
-  const uuid = 'urn:uuid:neo-' + d.id;
+  const uuid = 'urn:uuid:' + (d.uuid || crypto.randomUUID());
   const modified = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 
   // real cover art when the book has it; the shelf's cover otherwise
@@ -4560,7 +4632,7 @@ async function buildEpubEntries(data) {
 <dc:identifier id="bookid">${uuid}</dc:identifier>
 <dc:title>${escXml(d.title)}</dc:title>
 <dc:creator>${escXml(d.author)}</dc:creator>
-<dc:language>en</dc:language>
+<dc:language>${escXml(d.language || 'en')}</dc:language>
 <meta property="dcterms:modified">${modified}</meta>
 <meta name="cover" content="cover-image"/>
 </metadata>
@@ -4840,6 +4912,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'emailSettings') emailSettings();
   if (msg.type === 'find') openSearch();
   if (msg.type === 'spellcheck') toggleSpellcheck();
+  if (msg.type === 'spellLanguage') changeSpellLanguage(msg.value);
   if (msg.type === 'typewriter') toggleTypewriter();
   if (msg.type === 'import') importBooks();
   if (msg.type === 'stats') openStats();
