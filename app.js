@@ -2110,7 +2110,9 @@ function smartKeys(e, body) {
   // French: a narrow no-break space (U+202F) before ; : ! ? replaces the
   // ordinary space typed ahead of them. (The wider U+00A0 is not used: the
   // editing engine turns it back into a plain space, and NEO heals it away.)
-  if (french && /^[;:!?]$/.test(e.key) && /^[ \u00a0]$/.test(prevChars(1))) {
+  // Quebec usage (OQLF) keeps the space before the colon only.
+  const spaced = french === 'ca' ? /^:$/ : /^[;:!?]$/;
+  if (french && spaced.test(e.key) && /^[ \u00a0]$/.test(prevChars(1))) {
     e.preventDefault();
     document.execCommand('delete');
     document.execCommand('insertText', false, '\u202f' + e.key);
@@ -2136,10 +2138,14 @@ function smartKeys(e, body) {
 }
 
 // French typographic rules apply when the book is spellchecked in French,
-// or when NEO itself speaks French
+// or when NEO itself speaks French. Returns false, 'fr', or 'ca' for Quebec
+// usage (when the interface is set to Canadian French).
 function frenchTypography() {
   const spell = (library && library.spellLanguage) || '';
-  return spell ? spell.startsWith('fr') : NeoI18n.getLocale().startsWith('fr');
+  const ui = NeoI18n.getLocale();
+  const on = spell ? spell.startsWith('fr') : ui.startsWith('fr');
+  if (!on) return false;
+  return /^fr-CA$/i.test(ui) ? 'ca' : 'fr';
 }
 
 // Titles, outline lines, notes and shelf names get the same typography as

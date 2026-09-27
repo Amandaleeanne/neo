@@ -64,7 +64,13 @@ function listLanguages() {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Codes follow BCP 47 (fr-CA); the POSIX spelling (fr_CA) is accepted too.
+// A regional file (fr-CA.json) holds only what differs from its language's
+// base file (fr.json): fr-CA falls back to fr, then to English.
+const normCode = (c) => String(c || '').replace(/_/g, '-');
+
 function resolveLanguage(wanted) {
+  wanted = normCode(wanted);
   const codes = listLanguages().map((l) => l.code);
   const tries = [wanted, wanted && wanted.split('-')[0]].filter(Boolean);
   for (const c of tries) {
@@ -74,10 +80,20 @@ function resolveLanguage(wanted) {
   return null;
 }
 
+// The chosen language's strings: its base language first, then the
+// regional file's own wording on top
+function localeDict(code) {
+  if (code === 'en') return readLocaleFile('en') || {};
+  const base = code.split('-')[0];
+  const dict = base !== code ? { ...(readLocaleFile(base) || {}) } : {};
+  Object.assign(dict, readLocaleFile(code) || {});
+  return dict;
+}
+
 function loadLanguage(code) {
   uiLanguage = resolveLanguage(code) || 'en';
   const english = readLocaleFile('en') || {};
-  const dict = uiLanguage === 'en' ? english : (readLocaleFile(uiLanguage) || {});
+  const dict = localeDict(uiLanguage);
   NeoI18n.setLocale(uiLanguage, dict, english);
   return { locale: uiLanguage, dict, base: english };
 }
@@ -92,8 +108,7 @@ function initLanguage() {
 // The window asks once, synchronously, before any of its code runs
 ipcMain.on('i18n:get', (e) => {
   const english = readLocaleFile('en') || {};
-  const dict = uiLanguage === 'en' ? english : (readLocaleFile(uiLanguage) || {});
-  e.returnValue = { locale: uiLanguage, dict, base: english };
+  e.returnValue = { locale: uiLanguage, dict: localeDict(uiLanguage), base: english };
 });
 
 // View → Language: save the choice, redraw the menus, and let the window

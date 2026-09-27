@@ -5,6 +5,8 @@
 //                                      interface string, ready to translate
 //   node scripts/i18n.js check fr      lists what locales/fr.json is missing,
 //                                      and what it holds that NEO no longer uses
+//   node scripts/i18n.js check fr-CA   the same for a regional file, which
+//                                      only holds what differs from fr.json
 //
 // Strings are found in t('…'), tk('…') and NeoI18n.t('…') calls in the
 // JavaScript, and in the data-i18n* attributes of index.html.
@@ -64,12 +66,16 @@ if (cmd === 'template') {
   fs.writeFileSync(path.join(LOCALES, '_template.json'), JSON.stringify(out, null, 2) + '\n');
   console.log(`locales/_template.json: ${keys.size} strings`);
 } else if (cmd === 'check' && code) {
-  const dict = readLocale(code);
+  // a regional file (fr-CA) only holds what differs from its base (fr)
+  const own = readLocale(code);
+  const baseCode = code.split('-')[0];
+  const regional = baseCode !== code;
+  const dict = regional ? { ...readLocale(baseCode), ...own } : own;
   const missing = [...keys.keys()].filter((k) => {
     const v = dict[k];
     return !(typeof v === 'string' ? v : v && typeof v === 'object' && v.other);
   });
-  const unused = Object.keys(dict).filter((k) => k !== '_meta' && !keys.has(k));
+  const unused = Object.keys(own).filter((k) => k !== '_meta' && !keys.has(k));
   // every {placeholder} of the English must survive the translation
   const vars = (s) => (String(s).match(/\{\w+\}/g) || []).sort().join(',');
   const broken = [...keys.keys()].filter((k) => {
@@ -78,7 +84,8 @@ if (cmd === 'template') {
     const forms = typeof v === 'string' ? [v] : Object.values(v);
     return forms.some((f) => vars(f).replace(/\{n\},?/g, '') !== vars(k).replace(/\{n\},?/g, ''));
   });
-  console.log(`${code}: ${keys.size - missing.length}/${keys.size} translated`);
+  console.log(`${code}: ${keys.size - missing.length}/${keys.size} translated` +
+    (regional ? ` (${Object.keys(own).length - 1} regional, the rest from ${baseCode}.json)` : ''));
   if (missing.length) console.log('\nMissing:\n  ' + missing.join('\n  '));
   if (broken.length) console.log('\nPlaceholders differ from the English:\n  ' + broken.join('\n  '));
   if (unused.length) console.log('\nNo longer used:\n  ' + unused.join('\n  '));

@@ -11,6 +11,20 @@ NEO's interface can be shown in any language. Each language is a single file in 
 
 The new language appears in **View → Language** the next time NEO starts.
 
+## Regional variants
+
+Language codes follow [BCP 47](https://www.rfc-editor.org/info/bcp47): a language (`fr`), optionally followed by a region (`fr-CA`, `fr-BE`, `fr-CH`). NEO also accepts the POSIX spelling (`fr_CA`) when reading a system or saved setting.
+
+A language's base file (`fr.json`) serves every region. A regional file (`fr-CA.json`) holds **only the strings that differ** there, and everything else comes from the base file, then from English:
+
+```
+fr-CA.json  →  fr.json  →  English
+```
+
+So `fr-CA.json` is short: in Quebec, "courriel" instead of "e-mail", and no space before `; ! ?`. A system set to Belgian or Swiss French, with no `fr-BE.json` or `fr-CH.json`, simply uses `fr.json`. Add a regional file only when wording really differs; numbers and dates already follow the region through the system's own formats.
+
+`node scripts/i18n.js check fr-CA` counts the base file's strings as covered.
+
 ## The rules of the file
 
 - **Placeholders** in braces, like `{title}` or `{n}`, are filled in by NEO. Keep them, spelled exactly the same; you can move them anywhere in the sentence.
