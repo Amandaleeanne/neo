@@ -52,6 +52,20 @@ button { font: inherit; cursor: pointer; }
 .shelf-header-right { display: flex; gap: 16px; align-items: center; -webkit-app-region: no-drag; }
 #author-chip { color: var(--muted); font-size: 13px; cursor: pointer; }
 #author-chip:hover { color: #ddd; }
+/* the rack of pen-name shelves that unfolds when a book is dragged to the name */
+#pen-rack {
+  position: fixed; z-index: 90; width: 300px; padding: 10px 14px 6px;
+  background: var(--pane, #202020); border: 1px solid #3a3a3a; border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  opacity: 0; transform: translateY(-6px); transition: opacity 0.15s ease, transform 0.15s ease;
+}
+#pen-rack.open { opacity: 1; transform: translateY(0); }
+.pen-slot {
+  padding: 16px 8px 8px; margin-bottom: 4px; color: var(--muted); font-size: 14px; letter-spacing: 1px;
+  text-align: left;
+  border-bottom: 4px solid #2e2a24; border-radius: 2px; transition: color 0.1s, border-color 0.1s, background 0.1s;
+}
+.pen-slot.over { color: #ddd; border-bottom-color: var(--accent); background: rgba(255,255,255,0.04); }
 #add-shelf-btn {
   background: none; border: 1px solid #3a3a3a; color: var(--muted);
   border-radius: 6px; padding: 5px 12px; font-size: 12px;

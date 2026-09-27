@@ -12,6 +12,14 @@ Get the latest installer from the **[Releases page](../../releases)**:
 
 - **macOS** — download the `.dmg` for older Intel machines or the arm64 file for Mac silicon. Open it and drag NEO to Applications.
 - **Windows** — download the `.exe` and run it. Or get the setup installer and run that.
+- **Linux** — download the `.AppImage`, make it executable, and run it:
+
+  ```
+  chmod +x NEO-*.AppImage
+  ./NEO-*.AppImage
+  ```
+
+  If it complains about a sandbox (common on Ubuntu 24.04 and newer), run it as `./NEO-*.AppImage --no-sandbox`. Your library lives in `~/Documents/NEO Library`; File → Library Folder… moves it anywhere you like.
 
 ## Why NEO?
 
