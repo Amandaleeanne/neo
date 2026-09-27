@@ -1,11 +1,19 @@
 # NEO Pocket
 
-The Android companion to NEO: open a WIP, write, close. The manuscript editor
-is desktop NEO's own code (`app.js` / `styles.css`, copied in at build time),
-running in a Capacitor shell with a phone-sized implementation of the
-`window.neo` bridge (`www/pocket-bridge.js`). Files live in
-`/storage/emulated/0/Documents/NEO Library`, shared with the desktop via
-Syncthing — same plain files, no cloud, no accounts.
+The Android and iOS companion to NEO: open a WIP, write, close. The
+manuscript editor is desktop NEO's own code (`app.js` / `styles.css`, copied
+in at build time), running in a Capacitor shell with a pocket-sized
+implementation of the `window.neo` bridge (`www/pocket-bridge.js`). Same
+plain files as the desktop, no accounts.
+
+- **Android:** files live in `Documents/NEO Library`, shared with the desktop
+  via Syncthing.
+- **iOS:** files live in the app's own folder. With iCloud Drive on, that's
+  iCloud Drive → NEO Pocket → NEO Library (still local files; Apple carries
+  changes in the background), and desktop NEO can point at the same folder
+  with File → Library Folder…. With iCloud Drive off, it's On My iPad → NEO
+  Pocket. Nothing is required on the desktop side: NEO stays local unless
+  the writer chooses that folder.
 
 ## Building
 
@@ -31,6 +39,33 @@ Local builds need Android Studio and: `cd pocket && npm install`, copy
 `../app.js`, `../covers.js` and `../styles.css` into `www/`, `npx cap sync android`, then
 build from `android/`. Local builds are debug-signed and won't install over a
 robot build (or vice versa).
+
+## Building for iOS
+
+Needs Xcode (with the iOS simulator), CocoaPods (`brew install cocoapods`),
+and an Apple Developer account for a real device. Then:
+
+    cd pocket && npm install
+    cp ../app.js ../covers.js ../styles.css www/
+    npx cap sync ios
+    npx cap open ios
+
+In Xcode: pick your Team under Signing & Capabilities, add the **iCloud**
+capability with **iCloud Documents** ticked and the container
+`iCloud.com.hughhowey.neopocket`, choose an iPad simulator or a plugged-in
+iPad, and press Run. After changing `app.js`, `styles.css` or anything in
+`www/`, repeat the `cp` and `npx cap copy ios`, then Run again.
+
+`ios/App/App/LibraryHome.swift` is the one piece of native code: it tells the
+bridge where the library folder is (iCloud or on-device) and pulls down files
+another device wrote before they're read.
+
+To test with real books in the simulator, run Pocket once, then:
+
+    open "$(xcrun simctl get_app_container booted com.hughhowey.neopocket data)/Documents"
+
+and copy a `NEO Library` folder in there (simulators have no iCloud, so this
+is the On My iPad path).
 
 ## Status — early alpha
 
