@@ -4267,6 +4267,7 @@ function showHelp() {
         ${row(KZ, 'Undo big moves (chapter deletes, replace-all, darlings) when not mid-typing')}
         ${row('-- and ...', 'Become an em dash — and a true ellipsis …')}
         ${row(K('⌘B · ⌘I', 'Ctrl+B · Ctrl+I'), 'Bold, italic. Quotes curl themselves.')}
+        ${row(K('⌘⇧ + …', 'Ctrl+Shift+…'), 'Align paragraph: L left · C center · R right · J justify')}
       </div>
 
       <div class="help-sec">Getting around</div>

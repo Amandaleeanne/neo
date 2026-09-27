@@ -1014,10 +1014,10 @@ function buildMenu() {
         {
           label: 'Align Paragraph',
           submenu: [
-            { label: 'Left', click: () => sendToWindow({ type: 'align', value: 'left' }) },
-            { label: 'Center', click: () => sendToWindow({ type: 'align', value: 'center' }) },
-            { label: 'Right', click: () => sendToWindow({ type: 'align', value: 'right' }) },
-            { label: 'Justify', click: () => sendToWindow({ type: 'align', value: 'justify' }) }
+            { label: 'Left', accelerator: 'CmdOrCtrl+Shift+L', click: () => sendToWindow({ type: 'align', value: 'left' }) },
+            { label: 'Center', accelerator: 'CmdOrCtrl+Shift+C', click: () => sendToWindow({ type: 'align', value: 'center' }) },
+            { label: 'Right', accelerator: 'CmdOrCtrl+Shift+R', click: () => sendToWindow({ type: 'align', value: 'right' }) },
+            { label: 'Justify', accelerator: 'CmdOrCtrl+Shift+J', click: () => sendToWindow({ type: 'align', value: 'justify' }) }
           ]
         },
         { type: 'separator' },
