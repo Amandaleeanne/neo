@@ -2,7 +2,7 @@
 // Owns the window and all file-system access. The renderer talks to this
 // through the IPC handlers below (see preload.js for the exposed API).
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem, utilityProcess } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem, utilityProcess, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -291,7 +291,7 @@ ipcMain.handle('book:writeMeta', (_e, bookId, meta) => {
   meta.modified = new Date().toISOString();
   writeJSON(path.join(bookDir(bookId), 'book.json'), meta);
   writeCatalog();
-  return true;
+  return meta.modified;
 });
 
 ipcMain.handle('chapter:read', (_e, bookId, chapterId) => {
@@ -922,9 +922,23 @@ async function dailyBackup() {
 // Window
 // ---------------------------------------------------------------------------
 function createWindow() {
+  // the window comes back the size and place it was left, when that place
+  // is still on a screen (a monitor unplugged since gets the default)
+  const saved = readSettings().window || {};
+  let bounds = { width: 1200, height: 800 };
+  if (saved.width >= 800 && saved.height >= 600) {
+    bounds = { width: saved.width, height: saved.height };
+    if (typeof saved.x === 'number' && typeof saved.y === 'number') {
+      const onScreen = screen.getAllDisplays().some((d) => {
+        const a = d.workArea;
+        return saved.x + 100 < a.x + a.width && saved.x + saved.width - 100 > a.x &&
+          saved.y + 40 < a.y + a.height && saved.y >= a.y - 20;
+      });
+      if (onScreen) Object.assign(bounds, { x: saved.x, y: saved.y });
+    }
+  }
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    ...bounds,
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
@@ -940,6 +954,13 @@ function createWindow() {
     }
   });
   win.loadFile('index.html');
+  const remember = () => {
+    if (win.isDestroyed() || win.isFullScreen() || win.isMinimized()) return;
+    writeSettings({ ...readSettings(), window: win.getNormalBounds() });
+  };
+  win.on('resize', remember);
+  win.on('move', remember);
+  win.on('close', remember);
 
   // NEO does its own spellchecking (see spell:* handlers) — the engine's
   // checker proved unreliable at scanning existing text, so it stays off
@@ -1070,6 +1091,14 @@ ipcMain.on('typewriter:state', (_e, on) => {
   typewriterState = on;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
+// File → New Books Open To: the pantser/plotter choice, kept in library.json
+let writingStyle = 'pantser';
+ipcMain.on('style:state', (_e, style) => {
+  style = style === 'plotter' ? 'plotter' : 'pantser';
+  if (style === writingStyle) return;
+  writingStyle = style;
+  try { buildMenu(); } catch (err) { logError('menu', err); }
+});
 
 function buildMenu() {
   const isMac = process.platform === 'darwin';
@@ -1122,9 +1151,16 @@ function buildMenu() {
         { label: t('Email Settings…'), click: () => sendToWindow({ type: 'emailSettings' }) },
         { label: t('Cover Art…'), click: () => sendToWindow({ type: 'coverArt' }) },
         {
-          label: isMac ? t('Goals & Settings…') : t('Goals & Settings…').replace(/&/g, '&&'),
+          label: t('Goals…'),
           accelerator: 'CmdOrCtrl+,',
           click: () => sendToWindow({ type: 'stats' })
+        },
+        {
+          label: t('New Books Open To'),
+          submenu: [
+            { label: t('Blank Page'), type: 'radio', checked: writingStyle !== 'plotter', click: () => sendToWindow({ type: 'writingStyle', value: 'pantser' }) },
+            { label: t('Outline First'), type: 'radio', checked: writingStyle === 'plotter', click: () => sendToWindow({ type: 'writingStyle', value: 'plotter' }) }
+          ]
         },
         { type: 'separator' },
         {
@@ -1187,7 +1223,9 @@ function buildMenu() {
           submenu: [
             { label: t('Literary'), click: () => sendToWindow({ type: 'dropCap', value: 'literary' }) },
             { label: t('Fantasy'), click: () => sendToWindow({ type: 'dropCap', value: 'fantasy' }) },
-            { label: t('Sci-Fi'), click: () => sendToWindow({ type: 'dropCap', value: 'scifi' }) }
+            { label: t('Sci-Fi'), click: () => sendToWindow({ type: 'dropCap', value: 'scifi' }) },
+            { type: 'separator' },
+            { label: t('Off'), click: () => sendToWindow({ type: 'dropCap', value: 'none' }) }
           ]
         },
         {

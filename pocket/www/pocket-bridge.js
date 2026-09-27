@@ -25,7 +25,8 @@
       const r = await libraryHome().locate();
       HOME = String(r.path).replace(/\/+$/, '');
       CLOUD = !!r.cloud;
-      if (CLOUD) await libraryHome().fetch({ wait: 8000 });
+      // first launch on a new iPad: the whole library is still in the cloud
+      if (CLOUD) await libraryHome().fetch({ wait: 20000 });
     } catch (err) {
       showErrorDetail('Could not find the library folder: ' + (err && err.message || err) +
         '\nplugins the page can see: ' + Object.keys((window.Capacitor && window.Capacitor.Plugins) || {}).join(', '));
@@ -148,6 +149,7 @@
     /* ---------- library ---------- */
     readLibrary: async () => {
       if (!(await checkAccess())) return { authorName: '', penNames: [], firstRunDone: false, shelves: [{ id: 'shelf-1', name: 'Works in Progress', bookIds: [] }] };
+      await fetchCloud('library.json', 15000);
       return readJSONFile(p('library.json'), {
         authorName: '', penNames: [], firstRunDone: false, pageTheme: 'night',
         shelves: [{ id: 'shelf-1', name: 'Works in Progress', bookIds: [] }]
@@ -180,8 +182,11 @@
     writeBookMeta: async (bookId, meta) => {
       meta.modified = new Date().toISOString();
       await writeJSONFile(p(bookId, 'book.json'), meta);
-      return true;
+      return meta.modified;
     },
+    // app.js asks before re-reading a book: on iCloud, pull down whatever the
+    // Mac wrote since (a short wait; the shelf must never hang on the network)
+    refreshBook: async (bookId) => { await fetchCloud(bookId, 4000); return true; },
     createBook: async (opts) => {
       const seed = (opts && opts.title) ? slugify(opts.title) : '';
       const id = 'book-' + (seed ? seed + '-' : '') + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
@@ -272,23 +277,39 @@
       } catch { console.error(msg); }
       showErrorDetail(msg);
     },
-    onMenu: () => { /* no menu bar in your pocket */ },
-    poetryState: () => { /* no Format menu to tick */ },
-    typewriterState: () => { /* likewise */ }
+    // no menu bar in your pocket: the ⋯ sheet (index.html) sends the same
+    // messages the desktop menus do, and the tick marks come back here
+    onMenu: (fn) => { window.pocketMenu = fn; },
+    poetryState: (on) => { window.pocketState.poetry = !!on; },
+    typewriterState: (on) => { window.pocketState.typewriter = !!on; }
   };
+  window.pocketState = { poetry: false, typewriter: false };
 
   // Pocket is written on a real keyboard, so Android's on-screen one stays
   // down: every editable field gets inputmode="none", which keeps the caret
   // and hardware typing but never summons the soft keyboard. Long-press the
   // ☰ button to bring it back for an emergency (and again to send it away).
+  // iPadOS already hides its keyboard whenever a hardware one is attached,
+  // so there the on-screen keyboard behaves normally unless toggled off.
   const EDITABLE = '[contenteditable], input, textarea';
-  let softKeyboard = false;
-  try { softKeyboard = localStorage.getItem('pocket-soft-keyboard') === 'on'; } catch { /* fine */ }
+  let softKeyboard = isIOS();
+  try {
+    const saved = localStorage.getItem('pocket-soft-keyboard');
+    if (saved) softKeyboard = saved === 'on';
+  } catch { /* fine */ }
   function applyKeyboardMode(root) {
     const els = root.matches && root.matches(EDITABLE) ? [root] : [];
     (root.querySelectorAll ? [...els, ...root.querySelectorAll(EDITABLE)] : els).forEach((el) => {
       if (softKeyboard) el.removeAttribute('inputmode');
       else el.setAttribute('inputmode', 'none');
+      // iOS would otherwise autocorrect, capitalise, underline and suggest
+      // its way through a manuscript. The page is the writer's alone.
+      if (isIOS()) {
+        el.setAttribute('autocorrect', 'off');
+        el.setAttribute('autocapitalize', 'off');
+        el.setAttribute('autocomplete', 'off');
+        el.setAttribute('spellcheck', 'false');
+      }
     });
   }
   window.pocketToggleSoftKeyboard = () => {

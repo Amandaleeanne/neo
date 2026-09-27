@@ -50,5 +50,6 @@ contextBridge.exposeInMainWorld('neo', {
   i18n: ipcRenderer.sendSync('i18n:get'),
   reloadForLanguage: () => ipcRenderer.invoke('i18n:reload'),
 
+  writingStyleState: (st) => ipcRenderer.send('style:state', st),
   onMenu: (cb) => ipcRenderer.on('menu', (_e, msg) => cb(msg))
 });

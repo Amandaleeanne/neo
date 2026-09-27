@@ -52,6 +52,8 @@ const isUntitled = (s) => !s || s === 'Untitled' || s === t('Untitled');
 let library = null;          // library.json
 let book = null;             // current book.json
 let chapterHTML = {};        // chapterId -> html (loaded at open)
+let savedHTML = {};          // chapterId -> html as last read from / written to disk
+let savedMetaSig = '';       // book.json as last read/written, minus the volatile bits
 let stickies = [];           // [{id, chapterId, text, resolved}]
 let darlings = [];           // [{id, html, text, chapterId, chapterLabel, date}]
 let currentTab = 'manuscript';
@@ -183,6 +185,7 @@ function coverUrl(meta) {
 async function loadLibrary() {
   libraryDirPath = await window.neo.libraryPath();
   library = await window.neo.readLibrary();
+  if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
   if (!library.firstRunDone) {
     showFirstRun();
   }
@@ -201,6 +204,7 @@ function showFirstRun() {
       const pen = $('#fr-pen').value.trim();
       library.penNames = pen ? [pen] : [];
       library.writingStyle = btn.dataset.style;
+      if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
       $('#fr-step1').hidden = true;
       $('#fr-step2').hidden = false;
       buildFontStep();
@@ -1052,9 +1056,12 @@ async function openBook(bookId) {
   currentChapterId = null; // never carry a chapter reference across books
   undoStack = [];
   chapterHTML = {};
+  savedHTML = {};
   for (const chId of book.chapterOrder) {
     chapterHTML[chId] = await window.neo.readChapter(bookId, chId);
+    savedHTML[chId] = chapterHTML[chId];
   }
+  savedMetaSig = metaSig(book); // what disk holds; NEO's own defaults don't count as edits
   stickies = await window.neo.readJSON(bookId, 'stickies', []);
   darlings = await window.neo.readJSON(bookId, 'darlings', []);
 
@@ -1397,7 +1404,7 @@ function chapterStartBackspace(e, body, chId) {
   const prevCount = prevBody.querySelectorAll('p').length;
   const keepScroll = $('#paper-scroll').scrollTop;
   chapterHTML[prevId] = captureBody(prevBody) + captureBody(body);
-  window.neo.writeChapter(book.id, prevId, chapterHTML[prevId]);
+  persistChapter(prevId);
   for (const s of stickies) if (s.chapterId === chId) s.chapterId = prevId;
   window.neo.writeJSON(book.id, 'stickies', stickies);
   for (const d of darlings) if (d.chapterId === chId) d.chapterId = prevId;
@@ -1623,7 +1630,7 @@ function splitChapterAt(body, chId, block, sel) {
   const idx = book.chapterOrder.indexOf(chId);
   const newId = createChapterAt(idx + 1);
   chapterHTML[newId] = parts.join('') || '<p><br></p>';
-  window.neo.writeChapter(book.id, newId, chapterHTML[newId]);
+  persistChapter(newId);
   const keepScroll = $('#paper-scroll').scrollTop;
   renderChapters();
   focusChapterStart(newId);
@@ -2237,7 +2244,7 @@ function createChapterAt(idx) {
   const chId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
   book.chapterOrder.splice(idx, 0, chId);
   chapterHTML[chId] = '<p><br></p>';
-  window.neo.writeChapter(book.id, chId, chapterHTML[chId]);
+  persistChapter(chId);
   saveMeta();
   renderChapters();
   return chId;
@@ -2324,6 +2331,36 @@ function insertPlaceholder() {
   scheduleChapterSave(currentChapterId);
   renderStickies();
   scheduleNavRefresh();
+  // the caret lands in the note: type what needs doing, Enter brings you
+  // back to the page just past the flag (Shift+Enter for another line)
+  const pane = $('#side-pane');
+  pane.dataset.autoOpened = pane.classList.contains('open') ? '0' : '1';
+  focusSticky(sid);
+}
+
+// Back to the manuscript, caret just past the flag. Scrolls only when the
+// flag isn't already on screen, and from wherever the page is now.
+function returnToMark(sid) {
+  if (currentTab !== 'manuscript') switchTab('manuscript');
+  const mark = document.querySelector(`.ph-mark[data-sid="${sid}"]`);
+  if (!mark) return;
+  const bodyEl = mark.closest('.chapter-body');
+  const scroller = $('#paper-scroll');
+  const r = mark.getBoundingClientRect();
+  const sr = scroller.getBoundingClientRect();
+  if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (!bodyEl) return;
+  currentChapterId = bodyEl.closest('.chapter').dataset.id;
+  bodyEl.focus({ preventScroll: true });
+  const range = document.createRange();
+  const next = mark.nextSibling;
+  if (next && next.nodeType === Node.TEXT_NODE) range.setStart(next, Math.min(1, next.textContent.length));
+  else range.setStartAfter(mark);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  highlightNav();
 }
 
 function renderStickies() {
@@ -2350,11 +2387,15 @@ function renderStickies() {
       clearTimeout(saveTimers.stickies);
       saveTimers.stickies = setTimeout(() => window.neo.writeJSON(book.id, 'stickies', stickies), 600);
     });
-    el.querySelector('.s-go').onclick = () => {
-      switchTab('manuscript');
-      const mark = document.querySelector(`.ph-mark[data-sid="${s.id}"]`);
-      if (mark) mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    };
+    ta.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey) return; // Shift+Enter: another line in the note
+      e.preventDefault();
+      const pane = $('#side-pane');
+      if (pane.dataset.autoOpened === '1' && pane.dataset.pinned !== '1') pane.classList.remove('open');
+      pane.dataset.autoOpened = '0';
+      returnToMark(s.id);
+    });
+    el.querySelector('.s-go').onclick = () => returnToMark(s.id);
     el.querySelector('.s-done').onclick = () => resolveSticky(s.id);
     wrap.appendChild(el);
   }
@@ -3415,12 +3456,39 @@ $('#paper-scroll').addEventListener('scroll', () => {
 /*  SAVING                                                             */
 /* ================================================================== */
 
+// One door for chapter writes, so NEO always knows what is on disk. That
+// knowledge is what lets it write only what changed (a library shared over
+// iCloud or Syncthing must not be re-written every twenty seconds) and, in
+// refreshFromDisk, tell another device's edits from its own.
+function persistChapter(chId, html) {
+  if (!book) return Promise.resolve(false);
+  if (html === undefined) html = chapterHTML[chId] || '';
+  savedHTML[chId] = html;
+  return window.neo.writeChapter(book.id, chId, html);
+}
+
 function scheduleChapterSave(chId) {
   clearTimeout(saveTimers[chId]);
   saveTimers[chId] = setTimeout(() => {
     if (!book) return; // the book closed before the timer fired; flushAllSaves already wrote it
-    window.neo.writeChapter(book.id, chId, chapterHTML[chId] || '');
+    persistChapter(chId);
   }, 800);
+}
+
+// book.json minus the parts every device changes constantly, and minus
+// empty defaults (NEO fills in chapterTitles: {} and friends after opening;
+// the file on disk may not have them yet — same book either way)
+function metaSig(m) {
+  if (!m) return '';
+  const c = {};
+  for (const k of Object.keys(m).sort()) {
+    if (k === 'lastPosition' || k === 'modified' || k === 'wordCount' || k === 'dailyCounts') continue; // bookkeeping, not the book
+    const v = m[k];
+    if (v === undefined || v === null || v === '') continue;
+    if (typeof v === 'object' && Object.keys(v).length === 0) continue;
+    c[k] = v;
+  }
+  return JSON.stringify(c);
 }
 
 function scheduleMetaSave() {
@@ -3428,24 +3496,130 @@ function scheduleMetaSave() {
   saveTimers.meta = setTimeout(saveMeta, 800);
 }
 async function saveMeta() {
-  if (book) await window.neo.writeBookMeta(book.id, book);
+  if (!book) return;
+  const sig = metaSig(book);
+  const stamp = await window.neo.writeBookMeta(book.id, book);
+  if (book && typeof stamp === 'string') book.modified = stamp;
+  savedMetaSig = sig;
 }
 
 function flushAllSaves() {
   if (!book) return;
   // remember where you were for next session
-  book.lastPosition = {
-    chapterId: currentChapterId,
-    scroll: $('#paper-scroll').scrollTop
-  };
+  const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
+  const moved = !book.lastPosition || book.lastPosition.chapterId !== pos.chapterId ||
+    Math.abs((book.lastPosition.scroll || 0) - pos.scroll) > 40;
+  book.lastPosition = pos;
   for (const chId of book.chapterOrder) {
-    if (chapterHTML[chId] !== undefined) {
-      window.neo.writeChapter(book.id, chId, chapterHTML[chId]);
+    if (chapterHTML[chId] !== undefined && chapterHTML[chId] !== savedHTML[chId]) {
+      persistChapter(chId);
     }
   }
   flushAux();
-  saveMeta();
+  if (moved || metaSig(book) !== savedMetaSig) saveMeta();
 }
+
+/* ================================================================== */
+/*  REFRESH — picking up what another device wrote                     */
+/*  A library shared over iCloud or Syncthing changes underneath NEO.  */
+/*  Whenever NEO comes back into view it looks again: a chapter that   */
+/*  changed on disk and not here is simply adopted; one that changed   */
+/*  in both places keeps the local text on the page and lands the      */
+/*  other device's version in a new chapter right after it, so that    */
+/*  nothing is ever lost quietly.                                      */
+/* ================================================================== */
+
+let refreshing = false;
+async function refreshFromDisk() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    if (!book) {
+      if (library && !$('#bookshelf-view').hidden) {
+        const lib = await window.neo.readLibrary();
+        if (lib && lib.firstRunDone && JSON.stringify(lib) !== JSON.stringify(library)) {
+          library = lib;
+          const shelf = $('#bookshelf-view');
+          const keep = shelf.scrollTop;
+          await renderShelves();
+          shelf.scrollTop = keep;
+        }
+      }
+      return;
+    }
+    const bookId = book.id;
+    if (window.neo.refreshBook) await window.neo.refreshBook(bookId);
+    const meta = await window.neo.readBookMeta(bookId);
+    if (!book || book.id !== bookId || !meta) return;
+    const localDirty = book.chapterOrder.some((c) => chapterHTML[c] !== savedHTML[c]) ||
+      metaSig(book) !== savedMetaSig;
+    if (metaSig(meta) !== savedMetaSig) {
+      if (localDirty) return; // both sides restructured; ours stands, next save wins
+      // the other device added, renamed or moved chapters: reopen in place
+      const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
+      const tab = currentTab;
+      await openBook(bookId);
+      if (tab !== 'manuscript') switchTab(tab);
+      requestAnimationFrame(() => {
+        if (pos.chapterId && book && book.chapterOrder.includes(pos.chapterId)) currentChapterId = pos.chapterId;
+        $('#paper-scroll').scrollTop = pos.scroll;
+        highlightNav();
+      });
+      toast(t('Updated from your other device'));
+      return;
+    }
+    let adopted = 0;
+    let conflicts = 0;
+    for (const chId of [...book.chapterOrder]) {
+      const disk = await window.neo.readChapter(bookId, chId);
+      if (!book || book.id !== bookId) return;
+      if (typeof disk !== 'string' || disk === savedHTML[chId]) continue;
+      if (disk === '' && savedHTML[chId]) continue; // unreadable or still downloading: not a change
+      if (chapterHTML[chId] === savedHTML[chId]) {
+        chapterHTML[chId] = disk;
+        savedHTML[chId] = disk;
+        wordCache[chId] = null;
+        adopted++;
+      } else {
+        savedHTML[chId] = disk; // what's on disk now; our text goes over it on the next save
+        const idx = book.chapterOrder.indexOf(chId);
+        const twinId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+        book.chapterOrder.splice(idx + 1, 0, twinId);
+        book.chapterTitles = book.chapterTitles || {};
+        const when = new Date().toLocaleTimeString(NeoI18n.getLocale(), { hour: 'numeric', minute: '2-digit' });
+        book.chapterTitles[twinId] = ((book.chapterTitles[chId] || '') + ' ' + t('from other device, {time}', { time: when })).trim();
+        chapterHTML[twinId] = disk;
+        persistChapter(twinId, disk);
+        persistChapter(chId);
+        scheduleMetaSave();
+        conflicts++;
+      }
+    }
+    if (adopted || conflicts) {
+      const caret = captureCaret();
+      const keepScroll = $('#paper-scroll').scrollTop;
+      renderChapters();
+      $('#paper-scroll').scrollTop = keepScroll;
+      if (caret) restoreCaret(caret);
+      updateCounters();
+      scheduleNavRefresh();
+      if (conflicts) toast(t('This chapter also changed on another device. That version is saved as the chapter after it.'), 8000);
+      else toast(t('Updated from your other device'));
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    refreshing = false;
+  }
+}
+window.addEventListener('focus', () => setTimeout(refreshFromDisk, 300));
+// and a quiet look every half minute while NEO is on screen, for the writer
+// who left both machines open
+setInterval(() => { if (document.visibilityState === 'visible') refreshFromDisk(); }, 30000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') setTimeout(refreshFromDisk, 300);
+  else if (book) flushAllSaves(); // iOS may end a backgrounded app without warning
+});
 
 window.addEventListener('beforeunload', flushAllSaves);
 // flush whenever focus leaves NEO, and every 20 seconds
@@ -3579,7 +3753,7 @@ async function structuralUndo() {
   stickies = snap.stickies;
   // resurrect any chapter files the action may have deleted
   for (const chId of book.chapterOrder) {
-    await window.neo.writeChapter(book.id, chId, chapterHTML[chId] || '<p><br></p>');
+    await persistChapter(chId, chapterHTML[chId] || '<p><br></p>');
   }
   await window.neo.writeJSON(book.id, 'darlings', darlings);
   await window.neo.writeJSON(book.id, 'stickies', stickies);
@@ -4137,7 +4311,7 @@ document.addEventListener('selectionchange', () => {
 });
 
 /* ================================================================== */
-/*  FOCUS MODE: dim everything but the sentence, paragraph or scene     */
+/*  FOCUS MODE: dim everything but the sentence or paragraph           */
 /* ================================================================== */
 // Painted with the CSS Custom Highlight API (like search and spellcheck),
 // so the manuscript DOM is never touched and nothing leaks into saved HTML.
@@ -4410,6 +4584,17 @@ function openCoverArt() {
   key.focus();
 }
 
+// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr
+function hourLabel(h) {
+  if (h === 0) return t('midnight');
+  const loc = NeoI18n.getLocale();
+  if (loc.startsWith('en')) {
+    if (h === 12) return t('noon');
+    return h < 12 ? t('{h} am', { h: String(h) }) : t('{h} pm', { h: String(h - 12) });
+  }
+  return new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(new Date(2000, 0, 1, h));
+}
+
 function openStats() {
   const hasBook = !!book;
   const today = hasBook ? (book.dailyCounts || {})[todayStr()] : null;
@@ -4418,8 +4603,8 @@ function openStats() {
   const bd = document.createElement('div');
   bd.className = 'modal-backdrop';
   bd.innerHTML = `
-    <div class="modal" style="width:580px">
-      <h2 style="font-size:17px">${hasBook ? t('{title} — progress', { title: escHtml(book.title) }) : t('Goals & settings')}</h2>
+    <div class="modal" style="width:${hasBook ? 580 : 380}px">
+      <h2 style="font-size:17px">${hasBook ? t('{title} — progress', { title: escHtml(book.title) }) : t('Goals')}</h2>
       ${hasBook ? `
       <div class="stats-nums">
         <div><div class="big">${fmtNum(total)}</div><div class="lbl">${t('total words')}</div></div>
@@ -4427,14 +4612,14 @@ function openStats() {
         <div><div class="big">${book.wordGoal ? Math.min(100, Math.round(total / book.wordGoal * 100)) + '%' : '—'}</div><div class="lbl">${t('of book goal')}</div></div>
       </div>
       ${statsChartSvg()}` : ''}
-      <div class="stats-row" style="margin-top:18px">
+      <div class="stats-row stats-goals" style="margin-top:${hasBook ? 18 : 6}px">
         <label>${t('Daily goal')} <input id="st-daily" type="number" min="0" value="${library.dailyGoal || ''}" placeholder="500"/></label>
         ${hasBook ? `<label>${t('Book goal')} <input id="st-book" type="number" min="0" value="${book.wordGoal || ''}" placeholder="80000"/></label>` : ''}
       </div>
-      <div class="stats-row">
-        <label>${t('My writing day ends at')}
+      <div class="stats-row stats-goals">
+        <label>${t('Day ends at')}
           <select id="st-dayends">
-            ${[0, 1, 2, 3, 4, 5, 6].map((h) => `<option value="${h}"${(library.dayEndsAt || 0) === h ? ' selected' : ''}>${h ? t('{h} am', { h: String(h) }) : t('midnight')}</option>`).join('')}
+            ${Array.from({ length: 24 }, (_, h) => `<option value="${h}"${(library.dayEndsAt || 0) === h ? ' selected' : ''}>${hourLabel(h)}</option>`).join('')}
           </select>
         </label>
       </div>
@@ -4442,16 +4627,7 @@ function openStats() {
       <div class="stats-row">
         <label>${t('Sprint')} <input id="st-sprint" type="number" min="50" value="${sprint ? sprint.target : 500}"/> ${t('words')}</label>
         <button id="st-sprint-btn">${sprint && !sprint.done ? t('End sprint') : t('Start sprint')}</button>
-        <span id="st-sprint-info" class="soft">${sprint && !sprint.done ? t('sprint running…') : t('a small hill to charge up')}</span>
       </div>` : ''}
-      <div class="stats-row">
-        <label>${t('New books open for a')}
-          <select id="st-style">
-            <option value="pantser"${library.writingStyle !== 'plotter' ? ' selected' : ''}>${t('Pantser — straight to the blank page')}</option>
-            <option value="plotter"${library.writingStyle === 'plotter' ? ' selected' : ''}>${t('Plotter — outline first')}</option>
-          </select>
-        </label>
-      </div>
       <div style="text-align:right;margin-top:14px">
         <button class="m-ok btn-gold">${t('Done')}</button>
       </div>
@@ -4460,7 +4636,6 @@ function openStats() {
   const close = async () => {
     library.dailyGoal = parseInt(bd.querySelector('#st-daily').value, 10) || 0;
     library.dayEndsAt = parseInt(bd.querySelector('#st-dayends').value, 10) || 0;
-    library.writingStyle = bd.querySelector('#st-style').value;
     if (hasBook) {
       book.wordGoal = parseInt(bd.querySelector('#st-book').value, 10) || 0;
       scheduleMetaSave();
@@ -4529,6 +4704,7 @@ function applyFonts() {
   if (f.dropcap && DROPCAP_FONTS[f.dropcap]) {
     document.documentElement.style.setProperty('--dropcap-font', DROPCAP_FONTS[f.dropcap]);
   }
+  document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
   document.body.classList.toggle('bright', !!library.uiBright);
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
@@ -4690,7 +4866,7 @@ function showHelp() {
       <div class="help-grid">
         ${row(K('⌘⇧F', 'Ctrl+Shift+F'), t('Full screen (Esc leaves)'))}
         ${row(K('⌘⇧T', 'Ctrl+Shift+T'), t('Typewriter scrolling'))}
-        ${row(K('⌘⇧O', 'Ctrl+Shift+O'), t('Focus mode: off → scene → paragraph → sentence → off (View → Focus Mode picks one directly)'))}
+        ${row(K('⌘⇧O', 'Ctrl+Shift+O'), t('Focus mode: off → paragraph → sentence → off (View → Focus Mode picks one directly)'))}
         ${row(K('⌘;', 'Ctrl+;'), t('Spellcheck pass (right-click squiggles for fixes)'))}
       </div>
 
@@ -4890,7 +5066,7 @@ function buildHtml(data, opts = {}) {
   .chapter h2 + p, .brk + p, .chapter p.first { text-indent: 0; }
   /* an in-flow raised initial: stays inside its word for copy, search,
      and screen readers, unlike a floated drop cap */
-  .chapter h2 + p:not(.poetry)::first-letter, .chapter p.first::first-letter { font-size: 1.8em; line-height: 1; }
+  ${(library.fonts || {}).dropcap === 'none' ? '' : '.chapter h2 + p:not(.poetry)::first-letter, .chapter p.first::first-letter { font-size: 1.8em; line-height: 1; }'}
   .brk { text-align: center; text-indent: 0 !important; letter-spacing: 8px; color: #888; margin: 2.5em 0; }
   .chapter p.poetry { text-indent: 0; margin: 0 2.5em; }
   .chapter p:not(.poetry) + p.poetry, .chapter h2 + p.poetry { margin-top: 0.9em; }
@@ -5361,6 +5537,11 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'focusCycle') cycleFocus();
   if (msg.type === 'import') importBooks();
   if (msg.type === 'stats') openStats();
+  if (msg.type === 'writingStyle') {
+    library.writingStyle = msg.value;
+    await window.neo.writeLibrary(library);
+    if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
+  }
   if (msg.type === 'coverArt') openCoverArt();
   if (msg.type === 'align') {
     applyAlign(msg.value);

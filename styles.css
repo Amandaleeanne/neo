@@ -430,7 +430,7 @@ body.focus-mode .chapter-head { color: color-mix(in srgb, var(--ink) 28%, var(--
 body.night ::highlight(neo-focus) { color: #d6d2c6; }
 /* the drop cap sits outside the highlight's reach; same selector as the cap
    itself so no other paragraph grows a ::first-letter */
-body.focus-mode .chapter-body.focus-cap:not(.cap-off) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter { color: var(--ink); }
+body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter { color: var(--ink); }
 .sheet {
   background: var(--paper); color: var(--ink);
   padding: 70px 72px 90px;
@@ -512,7 +512,7 @@ body.focus-mode .chapter-body.focus-cap:not(.cap-off) p:not(.poetry):not(p:not(.
 /* cap-off while the caret is in the first paragraph: the rule must stop
    MATCHING entirely — a matching first-letter rule, even styled to nothing,
    makes the engine split the text internally, which corrupts deletes */
-.chapter-body:not(.cap-off) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter {
+body:not(.no-dropcap) .chapter-body:not(.cap-off) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter {
   font-size: 3.4em; float: left; line-height: 0.8;
   padding: 4px 8px 0 0; font-family: var(--dropcap-font);
 }
@@ -777,6 +777,12 @@ body.bright .spell-menu button { color: #eee; }
   color: #eee; padding: 6px 9px; font-size: 13px;
 }
 .stats-row select:focus { outline: none; border-color: var(--accent); }
+/* the goal row: a caption over each box, boxes on one baseline, the
+   day-end choice off to the right on its own */
+.stats-goals { align-items: flex-end; }
+.stats-goals label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 0; line-height: 1.3; }
+.stats-goals input, .stats-goals select { height: 31px; box-sizing: border-box; margin: 0; display: block; }
+.stats-goals select { width: 110px; }
 .stats-row button {
   background: var(--accent); border: none; border-radius: 5px;
   padding: 6px 14px; color: #191919; font-size: 12px;
