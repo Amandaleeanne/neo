@@ -15,6 +15,8 @@ NEO currently speaks:
 | `nl` | Nederlands | complete, machine-assisted: native review welcome |
 | `pl` | Polski | complete, machine-assisted: native review welcome |
 
+Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch and Polish. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
+
 If you speak one of these and something reads oddly, a pull request that fixes a line is the most welcome contribution there is.
 
 NEO's interface can be shown in any language. Each language is a single file in `locales/`, and adding one needs no programming.
