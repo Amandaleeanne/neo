@@ -19,6 +19,17 @@ function applyStaticI18n(root = document) {
   root.querySelectorAll('[data-i18n-title]').forEach((el) => { if (el.title) el.title = t(el.title); });
   root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.placeholder); });
   root.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.dataset.ph = t(el.dataset.ph); });
+  // hints that styles.css draws with ::before read these custom properties
+  const cssHints = {
+    '--ph-add-title': t('add a title'),
+    '--ph-write-freely': t('Write freely…'),
+    '--ph-ol-chapter': t('What happens in this chapter…'),
+    '--ph-ol-section': t('What happens in this section…'),
+    '--ph-nav-note': t('What happens here…')
+  };
+  for (const [name, text] of Object.entries(cssHints)) {
+    document.documentElement.style.setProperty(name, JSON.stringify(text));
+  }
 }
 applyStaticI18n();
 
@@ -134,7 +145,9 @@ function toast(msg, ms = 4000) {
   toast._t = setTimeout(() => { h.hidden = true; }, ms);
 }
 
-const countWords = (text) => (text.trim().match(/\S+/g) || []).length;
+// a word holds at least one letter or digit, so French « » and spaced
+// dashes are not counted as words
+const countWords = (text) => (text.trim().match(/\S+/g) || []).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
 function cleanChapterEl(id) {
   const el = document.querySelector(`.chapter[data-id="${id}"] .chapter-body`);
@@ -2090,16 +2103,50 @@ function smartKeys(e, body) {
     document.execCommand('insertText', false, '…'); // …
     return;
   }
+  const french = frenchTypography();
+  // French: a narrow no-break space (U+202F) before ; : ! ? replaces the
+  // ordinary space typed ahead of them. (The wider U+00A0 is not used: the
+  // editing engine turns it back into a plain space, and NEO heals it away.)
+  if (french && /^[;:!?]$/.test(e.key) && /^[ \u00a0]$/.test(prevChars(1))) {
+    e.preventDefault();
+    document.execCommand('delete');
+    document.execCommand('insertText', false, '\u202f' + e.key);
+    return;
+  }
   if (e.key === '"' || e.key === "'") {
     e.preventDefault();
     const before = prevChars(1);
-    const opening = before === '' || /[\s\(\[\{—‘“>]/.test(before);
-    const ch = e.key === '"'
-      ? (opening ? '“' : '”')
-      : (opening ? '‘' : '’');
+    const opening = before === '' || /[\s\(\[\{—‘“«>]/.test(before);
+    let ch;
+    if (french && e.key === "'") {
+      ch = '’'; // in French the apostrophe is always ’
+    } else if (french) {
+      // « guillemets » with narrow no-break spaces inside them
+      ch = opening ? '«\u202f' : '\u202f»';
+    } else {
+      ch = e.key === '"'
+        ? (opening ? '“' : '”')
+        : (opening ? '‘' : '’');
+    }
     document.execCommand('insertText', false, ch);
   }
 }
+
+// French typographic rules apply when the book is spellchecked in French,
+// or when NEO itself speaks French
+function frenchTypography() {
+  const spell = (library && library.spellLanguage) || '';
+  return spell ? spell.startsWith('fr') : NeoI18n.getLocale().startsWith('fr');
+}
+
+// Titles, outline lines, notes and shelf names get the same typography as
+// the manuscript (which calls smartKeys itself). Capture phase, because
+// those fields keep their keystrokes from bubbling to the page.
+document.addEventListener('keydown', (e) => {
+  const el = e.target;
+  if (e.defaultPrevented || !el || !el.isContentEditable || el.closest('.chapter-body')) return;
+  smartKeys(e, el);
+}, true);
 
 // Title page: Enter drops you into Chapter One.
 $('#tp-title').addEventListener('keydown', titleEnter);
@@ -2270,7 +2317,7 @@ function renderStickies() {
     el.innerHTML = `
       <div class="s-ch">${chIdx >= 0 ? t('Chapter {n}', { n: chIdx + 1 }) : t('Unplaced')}</div>
       <textarea placeholder="${t('What needs doing here?')}" spellcheck="false"></textarea>
-      <div class="s-actions"><button class="s-go">${t('Go to')}</button> <button class="s-done">${t('Resolve')}</button></div>`;
+      <div class="s-actions"><button class="s-go">${t('Go to')}</button><span class="s-sep">·</span><button class="s-done">${t('Resolve')}</button></div>`;
     const ta = el.querySelector('textarea');
     ta.value = s.text;
     ta.addEventListener('input', () => {
