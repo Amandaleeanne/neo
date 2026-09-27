@@ -36,7 +36,7 @@ First install only: sideload, then grant **All files access**
 (Settings → Apps → NEO Pocket).
 
 Local builds need Android Studio and: `cd pocket && npm install`, copy
-`../app.js`, `../covers.js` and `../styles.css` into `www/`, `npx cap sync android`, then
+`../app.js`, `../covers.js`, `../styles.css` and the `../fonts` folder into `www/`, `npx cap sync android`, then
 build from `android/`. Local builds are debug-signed and won't install over a
 robot build (or vice versa).
 
@@ -46,13 +46,13 @@ Needs Xcode (with the iOS simulator), CocoaPods (`brew install cocoapods`),
 and an Apple Developer account for a real device. Then:
 
     cd pocket && npm install
-    cp ../app.js ../covers.js ../styles.css www/
+    cp ../app.js ../covers.js ../styles.css www/ && cp -R ../fonts www/
     npx cap sync ios
     npx cap open ios
 
 In Xcode: pick your Team under Signing & Capabilities, add the **iCloud**
 capability with **iCloud Documents** ticked and the container
-`iCloud.com.hughhowey.neopocket`, choose an iPad simulator or a plugged-in
+`iCloud.com.hughhowey.neo.pocket`, choose an iPad simulator or a plugged-in
 iPad, and press Run. After changing `app.js`, `styles.css` or anything in
 `www/`, repeat the `cp` and `npx cap copy ios`, then Run again.
 
@@ -62,7 +62,7 @@ another device wrote before they're read.
 
 To test with real books in the simulator, run Pocket once, then:
 
-    open "$(xcrun simctl get_app_container booted com.hughhowey.neopocket data)/Documents"
+    open "$(xcrun simctl get_app_container booted com.hughhowey.neo.pocket data)/Documents"
 
 and copy a `NEO Library` folder in there (simulators have no iCloud, so this
 is the On My iPad path).
@@ -83,8 +83,6 @@ Punch list, in rough order:
   uninstalling first
 - A small settings sheet: page theme, text size (desktop syncs these via
   library.json, but the phone deserves local control)
-- Bundle open-licensed fonts — Android lacks Georgia/Palatino/etc., so the
-  typeface picker currently changes nothing here
 - On-screen keyboard testing: composition/autocorrect vs. the editor's
   keydown handlers (hardware keyboards work well already)
 - Syncthing conflict detection: warn when *.sync-conflict files exist

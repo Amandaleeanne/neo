@@ -24,6 +24,7 @@ on:
       - 'app.js'
       - 'covers.js'
       - 'styles.css'
+      - 'fonts/**'
       - '.github/workflows/pocket.yml'
     tags:
       - 'pocket-v*'
@@ -67,6 +68,7 @@ jobs:
           cp ../app.js www/app.js
           cp ../covers.js www/covers.js
           cp ../styles.css www/styles.css
+          rm -rf www/fonts && cp -R ../fonts www/fonts
           npx cap sync android
 
       - name: Restore signing key

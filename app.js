@@ -6,6 +6,8 @@
 let library = null;          // library.json
 let book = null;             // current book.json
 let chapterHTML = {};        // chapterId -> html (loaded at open)
+let savedHTML = {};          // chapterId -> html as last read from / written to disk
+let savedMetaSig = '';       // book.json as last read/written, minus the volatile bits
 let stickies = [];           // [{id, chapterId, text, resolved}]
 let darlings = [];           // [{id, html, text, chapterId, chapterLabel, date}]
 let currentTab = 'manuscript';
@@ -1002,9 +1004,12 @@ async function openBook(bookId) {
   currentChapterId = null; // never carry a chapter reference across books
   undoStack = [];
   chapterHTML = {};
+  savedHTML = {};
   for (const chId of book.chapterOrder) {
     chapterHTML[chId] = await window.neo.readChapter(bookId, chId);
+    savedHTML[chId] = chapterHTML[chId];
   }
+  savedMetaSig = metaSig(book); // what disk holds; NEO's own defaults don't count as edits
   stickies = await window.neo.readJSON(bookId, 'stickies', []);
   darlings = await window.neo.readJSON(bookId, 'darlings', []);
 
@@ -1347,7 +1352,7 @@ function chapterStartBackspace(e, body, chId) {
   const prevCount = prevBody.querySelectorAll('p').length;
   const keepScroll = $('#paper-scroll').scrollTop;
   chapterHTML[prevId] = captureBody(prevBody) + captureBody(body);
-  window.neo.writeChapter(book.id, prevId, chapterHTML[prevId]);
+  persistChapter(prevId);
   for (const s of stickies) if (s.chapterId === chId) s.chapterId = prevId;
   window.neo.writeJSON(book.id, 'stickies', stickies);
   for (const d of darlings) if (d.chapterId === chId) d.chapterId = prevId;
@@ -1573,7 +1578,7 @@ function splitChapterAt(body, chId, block, sel) {
   const idx = book.chapterOrder.indexOf(chId);
   const newId = createChapterAt(idx + 1);
   chapterHTML[newId] = parts.join('') || '<p><br></p>';
-  window.neo.writeChapter(book.id, newId, chapterHTML[newId]);
+  persistChapter(newId);
   const keepScroll = $('#paper-scroll').scrollTop;
   renderChapters();
   focusChapterStart(newId);
@@ -2128,7 +2133,7 @@ function createChapterAt(idx) {
   const chId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
   book.chapterOrder.splice(idx, 0, chId);
   chapterHTML[chId] = '<p><br></p>';
-  window.neo.writeChapter(book.id, chId, chapterHTML[chId]);
+  persistChapter(chId);
   saveMeta();
   renderChapters();
   return chId;
@@ -3306,12 +3311,39 @@ $('#paper-scroll').addEventListener('scroll', () => {
 /*  SAVING                                                             */
 /* ================================================================== */
 
+// One door for chapter writes, so NEO always knows what is on disk. That
+// knowledge is what lets it write only what changed (a library shared over
+// iCloud or Syncthing must not be re-written every twenty seconds) and, in
+// refreshFromDisk, tell another device's edits from its own.
+function persistChapter(chId, html) {
+  if (!book) return Promise.resolve(false);
+  if (html === undefined) html = chapterHTML[chId] || '';
+  savedHTML[chId] = html;
+  return window.neo.writeChapter(book.id, chId, html);
+}
+
 function scheduleChapterSave(chId) {
   clearTimeout(saveTimers[chId]);
   saveTimers[chId] = setTimeout(() => {
     if (!book) return; // the book closed before the timer fired; flushAllSaves already wrote it
-    window.neo.writeChapter(book.id, chId, chapterHTML[chId] || '');
+    persistChapter(chId);
   }, 800);
+}
+
+// book.json minus the parts every device changes constantly, and minus
+// empty defaults (NEO fills in chapterTitles: {} and friends after opening;
+// the file on disk may not have them yet — same book either way)
+function metaSig(m) {
+  if (!m) return '';
+  const c = {};
+  for (const k of Object.keys(m).sort()) {
+    if (k === 'lastPosition' || k === 'modified' || k === 'wordCount' || k === 'dailyCounts') continue; // bookkeeping, not the book
+    const v = m[k];
+    if (v === undefined || v === null || v === '') continue;
+    if (typeof v === 'object' && Object.keys(v).length === 0) continue;
+    c[k] = v;
+  }
+  return JSON.stringify(c);
 }
 
 function scheduleMetaSave() {
@@ -3319,24 +3351,127 @@ function scheduleMetaSave() {
   saveTimers.meta = setTimeout(saveMeta, 800);
 }
 async function saveMeta() {
-  if (book) await window.neo.writeBookMeta(book.id, book);
+  if (!book) return;
+  const sig = metaSig(book);
+  const stamp = await window.neo.writeBookMeta(book.id, book);
+  if (book && typeof stamp === 'string') book.modified = stamp;
+  savedMetaSig = sig;
 }
 
 function flushAllSaves() {
   if (!book) return;
   // remember where you were for next session
-  book.lastPosition = {
-    chapterId: currentChapterId,
-    scroll: $('#paper-scroll').scrollTop
-  };
+  const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
+  const moved = !book.lastPosition || book.lastPosition.chapterId !== pos.chapterId ||
+    Math.abs((book.lastPosition.scroll || 0) - pos.scroll) > 40;
+  book.lastPosition = pos;
   for (const chId of book.chapterOrder) {
-    if (chapterHTML[chId] !== undefined) {
-      window.neo.writeChapter(book.id, chId, chapterHTML[chId]);
+    if (chapterHTML[chId] !== undefined && chapterHTML[chId] !== savedHTML[chId]) {
+      persistChapter(chId);
     }
   }
   flushAux();
-  saveMeta();
+  if (moved || metaSig(book) !== savedMetaSig) saveMeta();
 }
+
+/* ================================================================== */
+/*  REFRESH — picking up what another device wrote                     */
+/*  A library shared over iCloud or Syncthing changes underneath NEO.  */
+/*  Whenever NEO comes back into view it looks again: a chapter that   */
+/*  changed on disk and not here is simply adopted; one that changed   */
+/*  in both places keeps the local text on the page and lands the      */
+/*  other device's version in a new chapter right after it, so that    */
+/*  nothing is ever lost quietly.                                      */
+/* ================================================================== */
+
+let refreshing = false;
+async function refreshFromDisk() {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    if (!book) {
+      if (library && !$('#bookshelf-view').hidden) {
+        const lib = await window.neo.readLibrary();
+        if (lib && lib.firstRunDone && JSON.stringify(lib) !== JSON.stringify(library)) {
+          library = lib;
+          renderShelves();
+        }
+      }
+      return;
+    }
+    const bookId = book.id;
+    if (window.neo.refreshBook) await window.neo.refreshBook(bookId);
+    const meta = await window.neo.readBookMeta(bookId);
+    if (!book || book.id !== bookId || !meta) return;
+    const localDirty = book.chapterOrder.some((c) => chapterHTML[c] !== savedHTML[c]) ||
+      metaSig(book) !== savedMetaSig;
+    if (metaSig(meta) !== savedMetaSig) {
+      if (localDirty) return; // both sides restructured; ours stands, next save wins
+      // the other device added, renamed or moved chapters: reopen in place
+      const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
+      const tab = currentTab;
+      await openBook(bookId);
+      if (tab !== 'manuscript') switchTab(tab);
+      requestAnimationFrame(() => {
+        if (pos.chapterId && book && book.chapterOrder.includes(pos.chapterId)) currentChapterId = pos.chapterId;
+        $('#paper-scroll').scrollTop = pos.scroll;
+        highlightNav();
+      });
+      toast('Updated from your other device');
+      return;
+    }
+    let adopted = 0;
+    let conflicts = 0;
+    for (const chId of [...book.chapterOrder]) {
+      const disk = await window.neo.readChapter(bookId, chId);
+      if (!book || book.id !== bookId) return;
+      if (typeof disk !== 'string' || disk === savedHTML[chId]) continue;
+      if (disk === '' && savedHTML[chId]) continue; // unreadable or still downloading: not a change
+      if (chapterHTML[chId] === savedHTML[chId]) {
+        chapterHTML[chId] = disk;
+        savedHTML[chId] = disk;
+        wordCache[chId] = null;
+        adopted++;
+      } else {
+        savedHTML[chId] = disk; // what's on disk now; our text goes over it on the next save
+        const idx = book.chapterOrder.indexOf(chId);
+        const twinId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+        book.chapterOrder.splice(idx + 1, 0, twinId);
+        book.chapterTitles = book.chapterTitles || {};
+        const when = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        book.chapterTitles[twinId] = ((book.chapterTitles[chId] || '') + ' from other device, ' + when).trim();
+        chapterHTML[twinId] = disk;
+        persistChapter(twinId, disk);
+        persistChapter(chId);
+        scheduleMetaSave();
+        conflicts++;
+      }
+    }
+    if (adopted || conflicts) {
+      const caret = captureCaret();
+      const keepScroll = $('#paper-scroll').scrollTop;
+      renderChapters();
+      $('#paper-scroll').scrollTop = keepScroll;
+      if (caret) restoreCaret(caret);
+      updateCounters();
+      scheduleNavRefresh();
+      if (conflicts) toast('This chapter also changed on another device. That version is saved as the chapter after it.', 8000);
+      else toast('Updated from your other device');
+    }
+  } catch (err) {
+    console.error(err);
+  } finally {
+    refreshing = false;
+  }
+}
+window.addEventListener('focus', () => setTimeout(refreshFromDisk, 300));
+// and a quiet look every half minute while NEO is on screen, for the writer
+// who left both machines open
+setInterval(() => { if (document.visibilityState === 'visible') refreshFromDisk(); }, 30000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') setTimeout(refreshFromDisk, 300);
+  else if (book) flushAllSaves(); // iOS may end a backgrounded app without warning
+});
 
 window.addEventListener('beforeunload', flushAllSaves);
 // flush whenever focus leaves NEO, and every 20 seconds
@@ -3470,7 +3605,7 @@ async function structuralUndo() {
   stickies = snap.stickies;
   // resurrect any chapter files the action may have deleted
   for (const chId of book.chapterOrder) {
-    await window.neo.writeChapter(book.id, chId, chapterHTML[chId] || '<p><br></p>');
+    await persistChapter(chId, chapterHTML[chId] || '<p><br></p>');
   }
   await window.neo.writeJSON(book.id, 'darlings', darlings);
   await window.neo.writeJSON(book.id, 'stickies', stickies);

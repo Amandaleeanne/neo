@@ -195,7 +195,7 @@ ipcMain.handle('book:writeMeta', (_e, bookId, meta) => {
   meta.modified = new Date().toISOString();
   writeJSON(path.join(bookDir(bookId), 'book.json'), meta);
   writeCatalog();
-  return true;
+  return meta.modified;
 });
 
 ipcMain.handle('chapter:read', (_e, bookId, chapterId) => {
