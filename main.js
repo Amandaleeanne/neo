@@ -1030,7 +1030,8 @@ const SPELL_LANGUAGES = {
   'es': { label: 'Español', pkg: 'dictionary-es' },
   'de': { label: 'Deutsch', pkg: 'dictionary-de' },
   'nl': { label: 'Nederlands', pkg: 'dictionary-nl' },
-  'pl': { label: 'Polski', pkg: 'dictionary-pl' }
+  'pl': { label: 'Polski', pkg: 'dictionary-pl' },
+  'ru': { label: 'Русский', pkg: 'dictionary-ru' }
 };
 
 // The dictionary work runs in a helper process (spell-worker.js): parsing

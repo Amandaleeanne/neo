@@ -16,7 +16,7 @@ NEO currently speaks:
 | `pl` | Polski | complete, machine-assisted: native review welcome |
 | `ru` | Русский | complete, reviewed by a native speaker |
 
-Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch and Polish. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
+Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch, Polish and Russian. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
 
 If you speak one of these and something reads oddly, a pull request that fixes a line is the most welcome contribution there is.
 

@@ -111,6 +111,7 @@
     "dictionary-fr": "^3.0.0",
     "dictionary-nl": "^2.0.0",
     "dictionary-pl": "^2.0.0",
+    "dictionary-ru": "^3.0.0",
     "electron-updater": "^6.3.9",
     "jszip": "^3.10.1",
     "nspell": "^2.1.5"
