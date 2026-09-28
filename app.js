@@ -4626,7 +4626,7 @@ function openStats() {
       ${hasBook ? `
       <div class="stats-row">
         <label>${t('Sprint')} <input id="st-sprint" type="number" min="50" value="${sprint ? sprint.target : 500}"/> ${t('words')}</label>
-        <button id="st-sprint-btn">${sprint && !sprint.done ? t('End sprint') : t('Start sprint')}</button>
+        <button id="st-sprint-btn" class="btn-gold">${sprint && !sprint.done ? t('End sprint') : t('Start sprint')}</button>
       </div>` : ''}
       <div style="text-align:right;margin-top:14px">
         <button class="m-ok btn-gold">${t('Done')}</button>
@@ -4955,7 +4955,9 @@ function exportChapters() {
     // chapterless stories export as continuous text
     const heading = book.chapterOrder.length === 1
       ? ''
-      : t('Chapter {n}', { n: i + 1 }) + (chTitle ? ' — ' + chTitle : '');
+      : library.exportCustomChapterTitles && chTitle
+        ? chTitle
+        : t('Chapter {n}', { n: i + 1 }) + (chTitle ? ' — ' + chTitle : '');
     return { num: i + 1, heading, paras };
   });
 }
@@ -5526,6 +5528,10 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'about') showAbout();
   if (msg.type === 'checkUpdate') checkForUpdate();
   if (msg.type === 'export') doExport(msg.format);
+  if (msg.type === 'exportCustomChapterTitles') {
+    library.exportCustomChapterTitles = msg.checked;
+    await window.neo.writeLibrary(library);
+  }
   if (msg.type === 'emailDraft') doEmailDraft();
   if (msg.type === 'emailSettings') emailSettings();
   if (msg.type === 'find') openSearch();

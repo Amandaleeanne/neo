@@ -774,7 +774,7 @@ body.bright .spell-menu button { color: #eee; }
 .stats-row input:focus { outline: none; border-color: var(--accent); }
 .stats-row select {
   background: var(--bg); border: 1px solid #3a3a3a; border-radius: 5px;
-  color: #eee; padding: 6px 9px; font-size: 13px;
+  color: #eee; padding: 6px 9px; font-size: 13px; cursor: pointer;
 }
 .stats-row select:focus { outline: none; border-color: var(--accent); }
 /* the goal row: a caption over each box, boxes on one baseline, the
