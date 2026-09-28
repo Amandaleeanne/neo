@@ -305,7 +305,8 @@ const NeoCovers = (() => {
     'der', 'die', 'das', 'und', 'von', 'im', 'ein', 'eine', 'des', 'dem', 'den', 'mit', 'zum', 'zur', // de
     'il', 'lo', 'i', 'gli', 'di', 'della', 'dei', 'nel', 'nella', 'per', // it
     'het', 'een', 'van', 'op', 'met', // nl
-    'w', 'z', 'na', 'do', 'ze', 'we' // pl
+    'w', 'z', 'na', 'do', 'ze', 'we', // pl
+    'и', 'а', 'но', 'или', 'в', 'во', 'на', 'о', 'об', 'с', 'со', 'к', 'по', 'из', 'за', 'от', 'до', 'для', 'без', 'под', 'над', 'про', 'у', 'мой', 'моя', 'моё', 'мои', 'его', 'её', 'их' // ru
   ].map(connKey));
 
   // fonts must be in before anything is measured
