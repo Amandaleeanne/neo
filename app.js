@@ -1350,7 +1350,7 @@ function emptyChapterBackspace(e, body, chId) {
   breakRun++;
   if (idx > 0) {
     const prev = book.chapterOrder[idx - 1];
-    deleteChapterQuiet(chId).then(() => { focusChapter(prev); resetNativeUndo(); });
+    deleteChapterQuiet(chId).then(() => { focusChapter(prev, { quiet: true }); resetNativeUndo(); });
   } else {
     // an empty chapter 1 dissolves too — the caret lands at the top of
     // what just became the new chapter 1
@@ -1631,10 +1631,19 @@ function splitChapterAt(body, chId, block, sel) {
   const newId = createChapterAt(idx + 1);
   chapterHTML[newId] = parts.join('') || '<p><br></p>';
   persistChapter(newId);
+  const keepScroll = $('#paper-scroll').scrollTop;
   renderChapters();
+  $('#paper-scroll').scrollTop = keepScroll; // the split point stays in view: no bounce
   focusChapterStart(newId);
   resetNativeUndo();
-  document.querySelector(`.chapter[data-id="${newId}"] p`).scrollIntoView({ block: 'start' });
+  // the new chapter's first line begins just below the split; if it landed
+  // out of sight (a split near the bottom of the window), bring it up
+  const first = document.querySelector(`.chapter[data-id="${newId}"] p`);
+  if (first) {
+    const r = first.getBoundingClientRect();
+    const sr = $('#paper-scroll').getBoundingClientRect();
+    if (r.top < sr.top || r.bottom > sr.bottom - 40) first.scrollIntoView({ block: 'center' });
+  }
   breakRun++;
 }
 
@@ -2287,18 +2296,32 @@ async function deleteChapterQuiet(chId) {
   renderStickies();
 }
 
-function focusChapter(chId) {
+// opts.quiet: leave the page where it is unless the caret would be out of
+// sight (a backspace-merge, a darling restored) — otherwise the chapter's
+// head comes to the top of the window, as a jump from the chapter list should
+function focusChapter(chId, opts = {}) {
   const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
   if (!body) return;
-  body.focus();
-  // caret at the very end
+  body.focus({ preventScroll: true });
+  // caret at the very end — inside the last paragraph, not floating at the
+  // container level, so captureCaret/restoreCaret (which resetNativeUndo
+  // runs right after) keep it there instead of snapping to the chapter top
   const range = document.createRange();
-  range.selectNodeContents(body);
+  const last = [...body.querySelectorAll('p')].pop();
+  if (last) range.selectNodeContents(last);
+  else range.selectNodeContents(body);
   range.collapse(false);
   const sel = window.getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
-  body.closest('.chapter').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (opts.quiet) {
+    const target = last || body;
+    const r = target.getBoundingClientRect();
+    const sr = $('#paper-scroll').getBoundingClientRect();
+    if (r.bottom < sr.top + 40 || r.bottom > sr.bottom - 40) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    body.closest('.chapter').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   currentChapterId = chId;
   highlightNav();
 }
@@ -3342,7 +3365,7 @@ async function restoreDarling(id) {
   scheduleChapterSave(chId);
   darlings = darlings.filter((x) => x.id !== id);
   await window.neo.writeJSON(book.id, 'darlings', darlings);
-  focusChapter(chId);
+  focusChapter(chId, { quiet: true });
   toast(t('Original spot is gone — restored to the end of {label}', { label: d.chapterLabel || t('the manuscript') }));
 }
 
