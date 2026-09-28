@@ -1969,6 +1969,15 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (currentTab === 'manuscript') darlingFromKeyboard();
   }
+  // Ctrl+; is matched by the character, not the key position. On a German
+  // QWERTZ keyboard the semicolon is Shift+',' — a combination the menu
+  // accelerator cannot name, so Ctrl+; never fired there. Shift is required
+  // in this branch because the plain Ctrl+; case belongs to the menu on the
+  // layouts that have it; this catches the ones that need Shift to type ';'.
+  if (cmd && e.shiftKey && !e.altKey && e.key === ';') {
+    e.preventDefault();
+    toggleSpellcheck();
+  }
   if (e.key === 'Escape') {
     if (!$('#searchbar').hidden) closeSearch();
     else window.neo.fullscreenEscape().then((exited) => { if (!exited) backToShelf(); });
