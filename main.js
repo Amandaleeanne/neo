@@ -683,11 +683,11 @@ function docxStyleFormats(stylesXml) {
 function docxParagraphToMarkdown(p, styles = {}) {
   const pageBreak = /<w:br [^>]*w:type="page"/.test(p) || /<w:pageBreakBefore/.test(p);
   // Word marks headings with a paragraph style such as <w:pStyle w:val="Heading1"/>.
-  // Any heading style (Heading1..9, or bare "Heading") starts a new chapter and
+  // Any heading style (Heading1..9, Heading 1..9, or bare "Heading") starts a new chapter and
   // gives it its title — regardless of locale, the underlying style id is
   // always "Heading*".
   const pStyle = (p.match(/<w:pStyle\s+w:val="([^"]*)"/) || [])[1] || '';
-  const heading = /^heading\d*$/i.test(pStyle);
+  const heading = /^heading\s*\d*$/i.test(pStyle);
   // Google Docs exports each of a document's tabs under a "Title"-styled
   // line, and the book's own title page uses the same style: the first one
   // names the book, later ones start chapters (see chapterize)
