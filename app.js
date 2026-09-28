@@ -5590,29 +5590,41 @@ async function exportShelfAnthology(shelf) {
   ]);
   if (!format) return;
   toast(t('Collecting the shelf…'));
-  const data = await shelfExportData(shelf, title || shelf.name);
-  if (!data.sections.length) { toast(t('No words found on this shelf yet')); return; }
-  const defaultName = safeName(data.title);
-  let payload;
-  if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
-  else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
-  else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data) }) };
-  const saved = await window.neo.exportSave(payload);
-  if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
+  try {
+    const data = await shelfExportData(shelf, title || shelf.name);
+    if (!data.sections.length) { toast(t('No words found on this shelf yet')); return; }
+    const defaultName = safeName(data.title);
+    let payload;
+    if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
+    else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
+    else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data) }) };
+    const saved = await window.neo.exportSave(payload);
+    if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
+  } catch (err) {
+    window.neo.logError('export anthology: ' + (err && err.stack || err));
+    toast(t('Couldn’t export the anthology: {error}', { error: (err && err.message) || err }), 8000);
+  }
 }
 
 async function doExport(format) {
   if (!book) { toast(t('Open a book first')); return; }
   flushAllSaves();
   const defaultName = safeName(book.title);
-  let payload;
-  if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries() };
-  else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
-  else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
-  else if (format === 'md') payload = { format, defaultName, content: buildMd() };
-  else payload = { format, defaultName, content: buildHtml(null, { cover: await exportCover(bookExportData()) }) };
-  const saved = await window.neo.exportSave(payload);
-  if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
+  try {
+    let payload;
+    if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries() };
+    else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
+    else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
+    else if (format === 'md') payload = { format, defaultName, content: buildMd() };
+    else payload = { format, defaultName, content: buildHtml(null, { cover: await exportCover(bookExportData()) }) };
+    const saved = await window.neo.exportSave(payload);
+    if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
+  } catch (err) {
+    // An export that saves nothing must never be silent: name the failure,
+    // and put the stack in the error log for whatever bug report follows.
+    window.neo.logError('export ' + format + ': ' + (err && err.stack || err));
+    toast(t('Couldn’t export: {error}', { error: (err && err.message) || err }), 8000);
+  }
 }
 
 function chooseEmailMethod() {

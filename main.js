@@ -592,12 +592,20 @@ ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntr
     filters: [{ name: format.toUpperCase(), extensions: [format] }]
   });
   if (canceled || !filePath) return null;
-  if (zipEntries) {
-    fs.writeFileSync(filePath, await buildZip(zipEntries));
-  } else if (format === 'pdf') {
-    fs.writeFileSync(filePath, await renderPDF(content));
-  } else {
-    fs.writeFileSync(filePath, content, 'utf8');
+  try {
+    if (zipEntries) {
+      fs.writeFileSync(filePath, await buildZip(zipEntries));
+    } else if (format === 'pdf') {
+      fs.writeFileSync(filePath, await renderPDF(content));
+    } else {
+      fs.writeFileSync(filePath, content, 'utf8');
+    }
+  } catch (err) {
+    // Main-process export failures used to vanish: the renderer saw a bare
+    // rejection and nothing reached neo-errors.log. Log it here, and hand the
+    // renderer a sentence it can show the writer.
+    logError('export save', err);
+    throw new Error('Could not write the file (' + ((err && err.message) || err) + ')');
   }
   return filePath;
 });
