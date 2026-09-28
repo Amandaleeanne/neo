@@ -48,7 +48,7 @@
   "Books in your library that aren’t on a shelf": "Libri della tua libreria che non sono su nessuno scaffale",
   "Books move to another shelf. Nothing is deleted from disk.": "I libri passano su un altro scaffale. Nulla viene cancellato dal disco.",
   "Brief": "Sintesi",
-  "Brighter Interface": "Interfaccia più luminosa",
+  "Brighter Interface": "Contrasto elevato",
   "Bring All to Front": "Porta tutto in primo piano",
   "Bring your manuscripts home": "Riporta a casa i tuoi manoscritti",
   "by {author}": "di {author}",
@@ -489,5 +489,16 @@
   "Control": "Controllo",
   "or": "o",
   "Chapter Titles Only": "Solo titoli dei capitoli",
-  "Keyboard Shortcuts…": "Scorciatoie da tastiera…"
+  "Keyboard Shortcuts…": "Scorciatoie da tastiera…",
+  "Chapters": "Capitoli",
+  "Title": "Titolo",
+  "Outline note": "Nota della scaletta",
+  "Words written over the last 30 days": "Parole scritte negli ultimi 30 giorni",
+  "Move between the page, the chapters, the notes and the bottom bar": "Passare dalla pagina ai capitoli, alle note e alla barra in basso",
+  "Interface Size": "Dimensione dell’interfaccia",
+  "Normal": "Normale",
+  "Large (125%)": "Grande (125%)",
+  "Larger (150%)": "Più grande (150%)",
+  "Largest (200%)": "Massima (200%)",
+  "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Con Maiuscole, all’indietro. Esc torna alla pagina. Nello scaffale: i libri, poi l’intestazione."
 }
