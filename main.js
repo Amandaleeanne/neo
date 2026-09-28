@@ -1134,8 +1134,7 @@ ipcMain.on('typewriter:state', (_e, on) => {
   typewriterState = on;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
-// View → Brighter Interface shows its tick too, and Interface Size its choice
-let brightState = false;
+// View → Interface Size shows its choice
 let uiZoomState = 1;
 ipcMain.on('uizoom:state', (_e, z) => {
   z = [1, 1.25, 1.5, 2].includes(z) ? z : 1;
@@ -1143,10 +1142,13 @@ ipcMain.on('uizoom:state', (_e, z) => {
   uiZoomState = z;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
-ipcMain.on('bright:state', (_e, on) => {
-  on = !!on;
-  if (on === brightState) return;
-  brightState = on;
+// View menu ticks: the focus level, the page, and Brighter Interface
+let viewState = { focus: 'off', pageTheme: 'night', uiBright: false };
+ipcMain.on('view:state', (_e, st) => {
+  st = st || {};
+  const next = { focus: st.focus || 'off', pageTheme: st.pageTheme || 'night', uiBright: !!st.uiBright };
+  if (JSON.stringify(next) === JSON.stringify(viewState)) return;
+  viewState = next;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
 // File → New Books Open To: the pantser/plotter choice, kept in library.json
@@ -1348,23 +1350,23 @@ function buildMenu() {
           submenu: [
             { label: t('Cycle'), accelerator: 'CmdOrCtrl+Shift+O', click: () => sendToWindow({ type: 'focusCycle' }) },
             { type: 'separator' },
-            { label: t('Sentence'), click: () => sendToWindow({ type: 'focus', value: 'sentence' }) },
-            { label: t('Paragraph'), click: () => sendToWindow({ type: 'focus', value: 'paragraph' }) },
-            { label: t('Off'), click: () => sendToWindow({ type: 'focus', value: 'off' }) }
+            { label: t('Sentence'), type: 'radio', checked: viewState.focus === 'sentence', click: () => sendToWindow({ type: 'focus', value: 'sentence' }) },
+            { label: t('Paragraph'), type: 'radio', checked: viewState.focus === 'paragraph', click: () => sendToWindow({ type: 'focus', value: 'paragraph' }) },
+            { label: t('Off'), type: 'radio', checked: viewState.focus === 'off', click: () => sendToWindow({ type: 'focus', value: 'off' }) }
           ]
         },
         { type: 'separator' },
         {
           label: t('Page'),
           submenu: [
-            { label: t('Night'), click: () => sendToWindow({ type: 'pageTheme', value: 'night' }) },
-            { label: t('Paper'), click: () => sendToWindow({ type: 'pageTheme', value: 'paper' }) }
+            { label: t('Night'), type: 'radio', checked: viewState.pageTheme !== 'paper', click: () => sendToWindow({ type: 'pageTheme', value: 'night' }) },
+            { label: t('Paper'), type: 'radio', checked: viewState.pageTheme === 'paper', click: () => sendToWindow({ type: 'pageTheme', value: 'paper' }) }
           ]
         },
         {
           label: t('Brighter Interface'),
           type: 'checkbox',
-          checked: brightState,
+          checked: viewState.uiBright,
           click: () => sendToWindow({ type: 'uiBright' })
         },
         {
@@ -1439,25 +1441,95 @@ function compareVersions(a, b) {
 // newer Chromium ignores attribute changes on text it has already looked at
 ipcMain.handle('app:version', () => app.getVersion());
 
+// Help → Check for Update…
+//
+// Packaged builds update themselves: electron-updater reads the release's
+// latest*.yml, downloads the installer in the background (progress goes to
+// the window), and "Restart to update" swaps the app in. The page saves
+// itself before asking for the restart. A build that can't self-update —
+// `npm start`, the Windows portable .exe, anything unsigned — falls back
+// to the release page on GitHub, as before.
+let updater = null;          // electron-updater's autoUpdater, wired once
+let updaterReady = false;    // an update is downloaded and waiting
+function getUpdater() {
+  if (updater || !app.isPackaged) return updater;
+  const { autoUpdater } = require('electron-updater');
+  autoUpdater.logger = null;
+  autoUpdater.autoDownload = false;      // the writer says when
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('download-progress', (p) => {
+    sendToWindow({ type: 'update', state: 'downloading', percent: p.percent, transferred: p.transferred, total: p.total });
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    updaterReady = true;
+    sendToWindow({ type: 'update', state: 'ready', version: info && info.version });
+  });
+  autoUpdater.on('error', (err) => {
+    logError('updater', err);
+    sendToWindow({ type: 'update', state: 'error', message: String(err && err.message || err) });
+  });
+  updater = autoUpdater;
+  return updater;
+}
+
+// what's on GitHub, for the fallback path and the release link
+async function latestReleaseFromGitHub() {
+  const res = await fetch('https://api.github.com/repos/hughhowey/neo/releases/latest', {
+    headers: { 'User-Agent': 'NEO-App' }
+  });
+  if (!res.ok) throw new Error('GitHub API returned ' + res.status);
+  const data = await res.json();
+  lastReleaseUrl = data.html_url || null;
+  return String(data.tag_name || '').replace(/^v/, '');
+}
+
 ipcMain.handle('update:check', async () => {
+  const currentVersion = app.getVersion();
   try {
-    const res = await fetch('https://api.github.com/repos/hughhowey/neo/releases/latest', {
-      headers: { 'User-Agent': 'NEO-App' }
-    });
-    if (!res.ok) throw new Error('GitHub API returned ' + res.status);
-    const data = await res.json();
-    const latestVersion = String(data.tag_name || '').replace(/^v/, '');
-    const currentVersion = app.getVersion();
-    lastReleaseUrl = data.html_url || null;
+    const u = getUpdater();
+    if (u) {
+      const result = await u.checkForUpdates();
+      const latestVersion = result && result.updateInfo && result.updateInfo.version || '';
+      const hasUpdate = !!latestVersion && compareVersions(latestVersion, currentVersion) > 0;
+      latestReleaseFromGitHub().catch(() => {}); // the release link, for the fallback button
+      return { hasUpdate, latestVersion, currentVersion, canInstall: true, ready: updaterReady };
+    }
+  } catch (err) {
+    logError('update', err); // fall through to the plain check
+  }
+  try {
+    const latestVersion = await latestReleaseFromGitHub();
     return {
       hasUpdate: !!latestVersion && compareVersions(latestVersion, currentVersion) > 0,
       latestVersion,
-      currentVersion
+      currentVersion,
+      canInstall: false
     };
   } catch (err) {
     logError('update', err);
     return { error: true };
   }
+});
+
+ipcMain.handle('update:download', async () => {
+  const u = getUpdater();
+  if (!u) return false;
+  if (updaterReady) { sendToWindow({ type: 'update', state: 'ready' }); return true; }
+  try {
+    await u.downloadUpdate();
+    return true;
+  } catch (err) {
+    logError('updater', err);
+    sendToWindow({ type: 'update', state: 'error', message: String(err && err.message || err) });
+    return false;
+  }
+});
+
+ipcMain.handle('update:install', () => {
+  const u = getUpdater();
+  if (!u || !updaterReady) return false;
+  setImmediate(() => u.quitAndInstall(false, true));
+  return true;
 });
 
 // the renderer may only open the release page fetched above — never arbitrary URLs
@@ -1481,19 +1553,23 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-// Auto-update from GitHub releases. Deliberately defensive: any failure is
-// logged and swallowed, so an unsigned build or offline machine never notices.
-// (macOS auto-update only works once the app is code-signed.)
+// A quiet look at startup: nothing downloads, nothing pops up; if a newer
+// NEO exists the window shows one line, once, pointing at Help → Check for
+// Update…. Any failure is logged and swallowed, so an offline machine or an
+// unsigned build never notices.
 function checkForUpdates() {
   if (!app.isPackaged) return;
-  try {
-    const { autoUpdater } = require('electron-updater');
-    autoUpdater.logger = null;
-    autoUpdater.on('error', (err) => logError('updater', err));
-    autoUpdater.checkForUpdatesAndNotify().catch((err) => logError('updater', err));
-  } catch (err) {
-    logError('updater', err);
-  }
+  setTimeout(async () => {
+    try {
+      const u = getUpdater();
+      if (!u) return;
+      const result = await u.checkForUpdates();
+      const v = result && result.updateInfo && result.updateInfo.version || '';
+      if (v && compareVersions(v, app.getVersion()) > 0) sendToWindow({ type: 'update', state: 'available', version: v });
+    } catch (err) {
+      logError('updater', err);
+    }
+  }, 8000);
 }
 
 app.whenReady().then(() => {
