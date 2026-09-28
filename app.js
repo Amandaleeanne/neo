@@ -1350,7 +1350,7 @@ function emptyChapterBackspace(e, body, chId) {
   breakRun++;
   if (idx > 0) {
     const prev = book.chapterOrder[idx - 1];
-    deleteChapterQuiet(chId).then(() => { focusChapter(prev, { quiet: true }); resetNativeUndo(); });
+    deleteChapterQuiet(chId).then(() => { focusChapter(prev); resetNativeUndo(); });
   } else {
     // an empty chapter 1 dissolves too — the caret lands at the top of
     // what just became the new chapter 1
@@ -1631,19 +1631,10 @@ function splitChapterAt(body, chId, block, sel) {
   const newId = createChapterAt(idx + 1);
   chapterHTML[newId] = parts.join('') || '<p><br></p>';
   persistChapter(newId);
-  const keepScroll = $('#paper-scroll').scrollTop;
   renderChapters();
-  $('#paper-scroll').scrollTop = keepScroll; // the split point stays in view: no bounce
   focusChapterStart(newId);
   resetNativeUndo();
-  // the new chapter's first line begins just below the split; if it landed
-  // out of sight (a split near the bottom of the window), bring it up
-  const first = document.querySelector(`.chapter[data-id="${newId}"] p`);
-  if (first) {
-    const r = first.getBoundingClientRect();
-    const sr = $('#paper-scroll').getBoundingClientRect();
-    if (r.top < sr.top || r.bottom > sr.bottom - 40) first.scrollIntoView({ block: 'center' });
-  }
+  document.querySelector(`.chapter[data-id="${newId}"] p`).scrollIntoView({ block: 'start' });
   breakRun++;
 }
 
@@ -2296,32 +2287,18 @@ async function deleteChapterQuiet(chId) {
   renderStickies();
 }
 
-// opts.quiet: leave the page where it is unless the caret would be out of
-// sight (a backspace-merge, a darling restored) — otherwise the chapter's
-// head comes to the top of the window, as a jump from the chapter list should
-function focusChapter(chId, opts = {}) {
+function focusChapter(chId) {
   const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
   if (!body) return;
-  body.focus({ preventScroll: true });
-  // caret at the very end — inside the last paragraph, not floating at the
-  // container level, so captureCaret/restoreCaret (which resetNativeUndo
-  // runs right after) keep it there instead of snapping to the chapter top
+  body.focus();
+  // caret at the very end
   const range = document.createRange();
-  const last = [...body.querySelectorAll('p')].pop();
-  if (last) range.selectNodeContents(last);
-  else range.selectNodeContents(body);
+  range.selectNodeContents(body);
   range.collapse(false);
   const sel = window.getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
-  if (opts.quiet) {
-    const target = last || body;
-    const r = target.getBoundingClientRect();
-    const sr = $('#paper-scroll').getBoundingClientRect();
-    if (r.bottom < sr.top + 40 || r.bottom > sr.bottom - 40) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  } else {
-    body.closest('.chapter').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  body.closest('.chapter').scrollIntoView({ behavior: 'smooth', block: 'start' });
   currentChapterId = chId;
   highlightNav();
 }
@@ -3365,7 +3342,7 @@ async function restoreDarling(id) {
   scheduleChapterSave(chId);
   darlings = darlings.filter((x) => x.id !== id);
   await window.neo.writeJSON(book.id, 'darlings', darlings);
-  focusChapter(chId, { quiet: true });
+  focusChapter(chId);
   toast(t('Original spot is gone — restored to the end of {label}', { label: d.chapterLabel || t('the manuscript') }));
 }
 
@@ -4356,7 +4333,14 @@ const FOCUS_LEVELS = ['off', 'paragraph', 'sentence'];
 const FOCUS_LABELS = { off: tk('Focus mode off'), sentence: tk('Focus: sentence'), paragraph: tk('Focus: paragraph') };
 let focusLevel = 'off';
 
+// the View menu's ticks (focus level, page, brighter interface) follow the page
+function reportViewState() {
+  if (!window.neo.viewState || !library) return;
+  window.neo.viewState({ focus: focusLevel, pageTheme: library.pageTheme || 'night', uiBright: !!library.uiBright });
+}
+
 function applyFocus() {
+  reportViewState();
   document.body.classList.toggle('focus-mode', focusLevel !== 'off');
   if (focusLevel === 'off') {
     if (window.CSS && CSS.highlights) CSS.highlights.delete('neo-focus');
@@ -4743,6 +4727,7 @@ function applyFonts() {
   document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
   document.body.classList.toggle('bright', !!library.uiBright);
+  reportViewState();
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
   const zoom = Math.min(1.6, Math.max(0.75, library.pageZoom || 1));
@@ -5567,26 +5552,104 @@ async function doEmailDraft() {
 }
 
 // Help → Check for Update…: on-demand release lookup, only ever runs on a click
-async function checkForUpdate() {
-  const res = await window.neo.checkForUpdate();
-  if (res.error) { toast(t('Couldn’t check for updates — try again later')); return; }
-  if (!res.hasUpdate) { toast(t('You’re on the latest version ({version})', { version: res.currentVersion })); return; }
+let updateDialog = null; // the Check for Update… window, while it's open
+
+function updateDialogBox(res) {
   const bd = document.createElement('div');
   bd.className = 'modal-backdrop';
   bd.innerHTML = `
-    <div class="modal" style="width:380px">
+    <div class="modal" style="width:400px">
       <h2 style="font-size:16px">${t('NEO {version} is available', { version: res.latestVersion })}</h2>
-      <p>${t('You have {version}.', { version: res.currentVersion })}</p>
+      <p class="up-text">${t('You have {version}.', { version: res.currentVersion })}</p>
+      <div class="up-bar" hidden><div class="up-fill"></div></div>
       <div style="text-align:right;margin-top:14px">
         <button class="m-cancel btn-quiet" style="margin-right:10px">${t('Later')}</button>
-        <button class="m-ok btn-gold">${t('View Release')}</button>
+        <button class="m-ok btn-gold"></button>
       </div>
     </div>`;
   document.body.appendChild(bd);
-  const close = () => bd.remove();
+  const close = () => { bd.remove(); if (updateDialog === bd) updateDialog = null; };
+  bd.close = close;
   bd.querySelector('.m-cancel').onclick = close;
-  bd.querySelector('.m-ok').onclick = () => { window.neo.openRelease(); close(); };
+  bd.tabIndex = -1;
+  bd.focus();
   bd.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+  return bd;
+}
+
+// one function draws every state of the dialog, so a message from the
+// updater can redraw it whenever it likes
+function updateDialogShow(state, info = {}) {
+  const bd = updateDialog;
+  if (!bd) return;
+  const text = bd.querySelector('.up-text');
+  const bar = bd.querySelector('.up-bar');
+  const fill = bd.querySelector('.up-fill');
+  const ok = bd.querySelector('.m-ok');
+  const later = bd.querySelector('.m-cancel');
+  const mb = (n) => (n / 1048576).toFixed(0);
+  later.hidden = false;
+  ok.hidden = false;
+  bar.hidden = true;
+  if (state === 'offer') {
+    text.textContent = t('You have {version}.', { version: info.currentVersion });
+    ok.textContent = t('Download');
+    ok.onclick = () => { updateDialogShow('starting'); window.neo.downloadUpdate(); };
+  } else if (state === 'starting') {
+    text.textContent = t('Downloading…');
+    bar.hidden = false;
+    fill.style.width = '0%';
+    ok.hidden = true;
+  } else if (state === 'downloading') {
+    const pct = Math.max(0, Math.min(100, info.percent || 0));
+    text.textContent = info.total
+      ? t('Downloading… {done} of {total} MB', { done: mb(info.transferred || 0), total: mb(info.total) })
+      : t('Downloading…');
+    bar.hidden = false;
+    fill.style.width = pct.toFixed(1) + '%';
+    ok.hidden = true;
+  } else if (state === 'ready') {
+    text.textContent = t('Downloaded. NEO will save your work and restart.');
+    ok.textContent = t('Restart to update');
+    ok.onclick = () => { flushAllSaves(); setTimeout(() => window.neo.installUpdate(), 300); };
+    ok.focus();
+  } else if (state === 'error') {
+    text.textContent = t('The update couldn’t be installed from here: {message}', { message: info.message || t('unknown error') })
+      + ' ' + t('You can download it from the release page instead.');
+    ok.textContent = t('View Release');
+    ok.onclick = () => { window.neo.openRelease(); bd.close(); };
+  } else if (state === 'release') {
+    text.textContent = t('You have {version}.', { version: info.currentVersion });
+    ok.textContent = t('View Release');
+    ok.onclick = () => { window.neo.openRelease(); bd.close(); };
+  }
+}
+
+async function checkForUpdate() {
+  if (updateDialog) { updateDialog.focus(); return; }
+  const res = await window.neo.checkForUpdate();
+  if (res.error) { toast(t('Couldn’t check for updates — try again later')); return; }
+  if (!res.hasUpdate) { toast(t('You’re on the latest version ({version})', { version: res.currentVersion })); return; }
+  updateDialog = updateDialogBox(res);
+  if (!res.canInstall) updateDialogShow('release', res);
+  else if (res.ready) updateDialogShow('ready', res);
+  else updateDialogShow('offer', res);
+}
+
+// messages from the updater in the main process
+function updateMessage(msg) {
+  if (msg.state === 'available') {
+    // the quiet startup look: one line, once per version
+    if (updateDialog) return;
+    try {
+      if (localStorage.getItem('neo-update-hinted') === msg.version) return;
+      localStorage.setItem('neo-update-hinted', msg.version);
+    } catch { /* fine */ }
+    toast(t('NEO {version} is available — Help → Check for Update… installs it', { version: msg.version }), 7000);
+    return;
+  }
+  if (!updateDialog) return; // nothing open to report to
+  updateDialogShow(msg.state, msg);
 }
 
 // Help → About NEO: the version, plainly
@@ -5615,6 +5678,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'help') showHelp();
   if (msg.type === 'about') showAbout();
   if (msg.type === 'checkUpdate') checkForUpdate();
+  if (msg.type === 'update') updateMessage(msg);
   if (msg.type === 'export') doExport(msg.format);
   if (msg.type === 'exportCustomChapterTitles') {
     library.exportCustomChapterTitles = msg.checked;
