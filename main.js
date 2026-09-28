@@ -31,6 +31,102 @@ function writeSettings(obj) {
   fs.writeFileSync(settingsPath(), JSON.stringify(obj, null, 2));
 }
 
+// ---------------------------------------------------------------------------
+// Interface language: one JSON file per language in locales/ (see i18n.js).
+// The choice is app-level, like the library folder, so it lives in
+// settings.json. First launch follows the system language when NEO has it.
+// ---------------------------------------------------------------------------
+const NeoI18n = require('./i18n.js');
+const { t } = NeoI18n;
+const LOCALES_DIR = path.join(__dirname, 'locales');
+let uiLanguage = 'en';
+
+function readLocaleFile(code) {
+  if (!/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test(code)) return null;
+  try { return JSON.parse(fs.readFileSync(path.join(LOCALES_DIR, code + '.json'), 'utf8')); } catch { return null; }
+}
+
+// Every locales/<code>.json is a language on the menu, named in its own words
+function listLanguages() {
+  const out = [];
+  try {
+    for (const f of fs.readdirSync(LOCALES_DIR)) {
+      const m = f.match(/^([a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*)\.json$/);
+      if (!m) continue;
+      const data = readLocaleFile(m[1]);
+      if (!data) continue;
+      out.push({ code: m[1], name: (data._meta && data._meta.name) || m[1] });
+    }
+  } catch (err) {
+    logError('locales', err);
+  }
+  if (!out.some((l) => l.code === 'en')) out.push({ code: 'en', name: 'English' });
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Codes follow BCP 47 (fr-CA); the POSIX spelling (fr_CA) is accepted too.
+// A regional file (fr-CA.json) holds only what differs from its language's
+// base file (fr.json): fr-CA falls back to fr, then to English.
+const normCode = (c) => String(c || '').replace(/_/g, '-');
+
+function resolveLanguage(wanted) {
+  wanted = normCode(wanted);
+  const codes = listLanguages().map((l) => l.code);
+  const tries = [wanted, wanted && wanted.split('-')[0]].filter(Boolean);
+  for (const c of tries) {
+    const hit = codes.find((x) => x.toLowerCase() === c.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// The chosen language's strings: its base language first, then the
+// regional file's own wording on top
+function localeDict(code) {
+  if (code === 'en') return readLocaleFile('en') || {};
+  const base = code.split('-')[0];
+  const dict = base !== code ? { ...(readLocaleFile(base) || {}) } : {};
+  Object.assign(dict, readLocaleFile(code) || {});
+  return dict;
+}
+
+function loadLanguage(code) {
+  uiLanguage = resolveLanguage(code) || 'en';
+  const english = readLocaleFile('en') || {};
+  const dict = localeDict(uiLanguage);
+  NeoI18n.setLocale(uiLanguage, dict, english);
+  return { locale: uiLanguage, dict, base: english };
+}
+
+function initLanguage() {
+  const saved = readSettings().uiLanguage;
+  let sys = 'en';
+  try { sys = app.getLocale(); } catch { /* early start */ }
+  loadLanguage(saved || resolveLanguage(sys) || 'en');
+}
+
+// The window asks once, synchronously, before any of its code runs
+ipcMain.on('i18n:get', (e) => {
+  const english = readLocaleFile('en') || {};
+  e.returnValue = { locale: uiLanguage, dict: localeDict(uiLanguage), base: english };
+});
+
+// View → Language: save the choice, redraw the menus, and let the window
+// save its pages before it reloads in the new language
+function setUiLanguage(code) {
+  loadLanguage(code);
+  const settings = readSettings();
+  settings.uiLanguage = uiLanguage;
+  writeSettings(settings);
+  try { buildMenu(); } catch (err) { logError('menu', err); }
+  sendToWindow({ type: 'uiLanguage', value: uiLanguage });
+}
+
+ipcMain.handle('i18n:reload', (e) => {
+  e.sender.reload();
+  return true;
+});
+
 // File → Library Folder…: point NEO at any folder, or back at the default.
 // The library is plain files, so the writer moves them; NEO only follows.
 async function chooseLibraryFolder() {
@@ -39,16 +135,16 @@ async function chooseLibraryFolder() {
   const custom = LIBRARY_DIR !== defaultDir;
   const ask = await dialog.showMessageBox(win, {
     type: 'question',
-    message: 'Library folder',
-    detail: `Your books live in:\n${LIBRARY_DIR}\n\nChoose another folder and NEO restarts there. Existing books stay where they are — move the files yourself if you want them along.`,
-    buttons: custom ? ['Choose Folder…', 'Use Default Folder', 'Cancel'] : ['Choose Folder…', 'Cancel'],
+    message: t('Library folder'),
+    detail: t('Your books live in:\n{dir}\n\nChoose another folder and NEO restarts there. Existing books stay where they are — move the files yourself if you want them along.', { dir: LIBRARY_DIR }),
+    buttons: custom ? [t('Choose Folder…'), t('Use Default Folder'), t('Cancel')] : [t('Choose Folder…'), t('Cancel')],
     defaultId: 0,
     cancelId: custom ? 2 : 1
   });
   let next = null;
   if (ask.response === 0) {
     const r = await dialog.showOpenDialog(win, {
-      title: 'Choose a folder for your NEO library',
+      title: t('Choose a folder for your NEO library'),
       defaultPath: LIBRARY_DIR,
       properties: ['openDirectory', 'createDirectory']
     });
@@ -75,7 +171,7 @@ function ensureLibrary() {
       penNames: [],
       firstRunDone: false,
       pageTheme: 'night',
-      shelves: [{ id: 'shelf-1', name: 'Works in Progress', bookIds: [] }]
+      shelves: [{ id: 'shelf-1', name: t('Works in Progress'), bookIds: [] }]
     };
     fs.writeFileSync(LIBRARY_FILE, JSON.stringify(seed, null, 2));
   }
@@ -102,13 +198,13 @@ function writeCatalog() {
       if (!d.startsWith('book-')) continue;
       try {
         const m = JSON.parse(fs.readFileSync(path.join(LIBRARY_DIR, d, 'book.json'), 'utf8'));
-        lines.push(`${m.title || 'Untitled'}  —  ${d}  —  shelf: ${onShelf[m.id] || '(none — removed from shelves)'}`);
+        lines.push(`${m.title || t('Untitled')}  —  ${d}  —  ${t('shelf:')} ${onShelf[m.id] || t('(none — removed from shelves)')}`);
       } catch { /* not a valid book folder */ }
     }
     lines.sort((a, b) => a.localeCompare(b));
     fs.writeFileSync(path.join(LIBRARY_DIR, '_catalog.txt'),
-      'NEO LIBRARY CATALOG — which folder is which book\n' +
-      '(regenerated automatically; edits here do nothing)\n\n' +
+      t('NEO LIBRARY CATALOG — which folder is which book') + '\n' +
+      t('(regenerated automatically; edits here do nothing)') + '\n\n' +
       lines.join('\n') + '\n');
   } catch (err) {
     logError('catalog', err);
@@ -158,15 +254,15 @@ ipcMain.handle('book:create', (_e, meta) => {
   fs.mkdirSync(path.join(dir, 'chapters'), { recursive: true });
   const book = {
     id,
-    title: meta.title || 'Untitled',
+    title: meta.title || t('Untitled'),
     subtitle: '',
     series: '',
-    author: meta.author || 'Anonymous',
+    author: meta.author || t('Anonymous'),
     wordGoal: 0,
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
     chapterOrder: [],
-    tabNames: { notes: 'Notes', outline: 'Outline' }
+    tabNames: { notes: 'Notes', outline: 'Outline' } // shown translated (see tabName in app.js)
   };
   writeJSON(path.join(dir, 'book.json'), book);
   fs.writeFileSync(path.join(dir, 'notes.html'), '');
@@ -183,7 +279,7 @@ ipcMain.handle('library:listBooks', () => {
     for (const d of fs.readdirSync(LIBRARY_DIR)) {
       if (!d.startsWith('book-')) continue;
       const m = readJSON(path.join(LIBRARY_DIR, d, 'book.json'), null);
-      if (m && m.id) out.push({ id: m.id, title: m.title || 'Untitled', author: m.author || '', modified: m.modified || '' });
+      if (m && m.id) out.push({ id: m.id, title: m.title || t('Untitled'), author: m.author || '', modified: m.modified || '' });
     }
   } catch (err) { logError('listBooks', err); }
   return out;
@@ -250,11 +346,11 @@ ipcMain.handle('book:delete', async (_e, bookId, title) => {
   const win = BrowserWindow.getFocusedWindow();
   const { response } = await dialog.showMessageBox(win, {
     type: 'warning',
-    buttons: ['Cancel', process.platform === 'win32' ? 'Move to Recycle Bin' : 'Move to Trash'],
+    buttons: [t('Cancel'), process.platform === 'win32' ? t('Move to Recycle Bin') : t('Move to Trash')],
     defaultId: 0,
     cancelId: 0,
-    message: `Move “${title}” to the ${process.platform === 'win32' ? 'Recycle Bin' : 'Trash'}?`,
-    detail: 'The book folder goes to your system trash, so you can recover it.'
+    message: process.platform === 'win32' ? t('Move “{title}” to the Recycle Bin?', { title }) : t('Move “{title}” to the Trash?', { title }),
+    detail: t('The book folder goes to your system trash, so you can recover it.')
   });
   if (response === 1) {
     const { shell } = require('electron');
@@ -267,8 +363,8 @@ ipcMain.handle('book:delete', async (_e, bookId, title) => {
       logError('trash', err);
       shell.showItemInFolder(bookDir(bookId));
       dialog.showMessageBox(win, {
-        message: 'NEO couldn’t move that folder to the Trash.',
-        detail: 'The book is untouched. Its folder is highlighted so you can deal with it yourself.'
+        message: t('NEO couldn’t move that folder to the Trash.'),
+        detail: t('The book is untouched. Its folder is highlighted so you can deal with it yourself.')
       });
       return false;
     }
@@ -288,9 +384,9 @@ ipcMain.handle('library:path', () => LIBRARY_DIR);
 ipcMain.handle('cover:pick', async () => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-    title: 'Choose cover art',
+    title: t('Choose cover art'),
     properties: ['openFile'],
-    filters: [{ name: 'Images', extensions: COVER_EXTS }]
+    filters: [{ name: t('Images'), extensions: COVER_EXTS }]
   });
   return canceled || !filePaths.length ? null : filePaths[0];
 });
@@ -379,9 +475,9 @@ ipcMain.handle('cover:paint', (_e, bookId, text, options) => {
   const job = (async () => {
     const provider = (options && options.provider) || 'openai';
     const apiKey = readSecret(provider);
-    if (!apiKey) return { error: 'No API key for ' + provider + ' — add one under File → Cover Art…' };
+    if (!apiKey) return { error: t('No API key for {provider} — add one under File → Cover Art…', { provider }) };
     const dir = bookDir(bookId);
-    if (!fs.existsSync(dir)) return { error: 'Book folder is missing' };
+    if (!fs.existsSync(dir)) return { error: t('Book folder is missing') };
     try {
       const art = require('./art.js');
       const out = await art.paintCover({
@@ -625,6 +721,17 @@ function docxParagraphToMarkdown(p, styles = {}) {
   return { text, pageBreak, heading, title };
 }
 
+// Headings that are only NEO's own numbering, in the languages NEO speaks
+const CHAPTER_WORDS = new RegExp('^(' + [
+  'chapter', 'prologue', 'epilogue', 'part',                       // en
+  'chapitre', 'épilogue', 'partie',                                // fr
+  'capítulo', 'capitulo', 'prólogo', 'prologo', 'epílogo', 'epilogo', 'parte', // es, pt, it
+  'capitolo',                                                      // it
+  'kapitel', 'prolog', 'epilog', 'teil',                           // de
+  'hoofdstuk', 'proloog', 'epiloog', 'deel',                       // nl
+  'rozdział', 'rozdzial', 'część', 'czesc'                          // pl
+].join('|') + ')(?![\\p{L}\\d])', 'iu');
+
 async function importFile(fp) {
   const name = path.basename(fp).replace(/\.[^.]+$/, '');
   const ext = path.extname(fp).toLowerCase();
@@ -661,7 +768,7 @@ async function importFile(fp) {
   // A heading that is purely NEO's own numbering ("Chapter 2", "Prologue",
   // bare "7") carries no title — NEO numbers chapters itself.
   const isNumberedHeading = (t) => (
-    (/^(chapter|prologue|epilogue|part)\b/i.test(t) && t.length < 60) ||
+    (CHAPTER_WORDS.test(t) && t.length < 60) ||
     (numeralMode && isNumeralish(t))
   );
   const isHeading = (t) => t && (isMdHeading(t) || isNumberedHeading(t));
@@ -730,22 +837,35 @@ async function importFile(fp) {
   let title = styledTitle || null;
   let author = null;
   const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // "by Jane Doe" — or its equivalent in another language. Those words also
+  // open ordinary sentences ("Par une nuit…", "Von Anfang an"), so outside
+  // English the rest must look like a name: capitalized words (name
+  // particles aside), no sentence punctuation.
+  const bylineOf = (s) => {
+    const en = s.match(/^by\s+(.{2,60})$/i);
+    if (en) return en[1];
+    const m = s.match(/^(?:par|por|von|di|door|autor:?)\s+(.{2,60})$/iu);
+    if (!m || /[.!?,;…]/.test(m[1])) return null;
+    const words = m[1].trim().split(/\s+/);
+    const particle = /^(de|da|di|do|dos|das|du|des|del|della|la|le|van|von|der|den|ten|ter|y|e)$/;
+    return words.length <= 5 && words.every((w) => /^\p{Lu}/u.test(w) || particle.test(w)) ? m[1] : null;
+  };
   const first = chapters[0];
   if (first && first.paras.length) {
     const t0 = (first.paras[0].text || '').trim();
     const t1 = first.paras.length > 1 ? (first.paras[1].text || '').trim() : '';
     const titleish = t0 && t0.length < 90 && !/[.!?]$/.test(t0) && (
       (norm(t0).length > 3 && norm(name).includes(norm(t0))) ||
-      /^by\s+\S/i.test(t1) ||
+      !!bylineOf(t1) ||
       (t0 === t0.toUpperCase() && /[A-Z].*[A-Z]/.test(t0) && t0.length < 60)
     );
     if (titleish) {
       title = t0;
       first.paras.shift();
     }
-    const bl = first.paras.length ? (first.paras[0].text || '').trim().match(/^by\s+(.{2,60})$/i) : null;
+    const bl = first.paras.length ? bylineOf((first.paras[0].text || '').trim()) : null;
     if (bl) {
-      author = bl[1].trim();
+      author = bl.trim();
       first.paras.shift();
     }
     if (!first.paras.length) chapters.shift();
@@ -773,9 +893,9 @@ ipcMain.handle('import:files', async (_e, paths) => {
 ipcMain.handle('import:pick', async () => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-    title: 'Bring your manuscripts home',
+    title: t('Bring your manuscripts home'),
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'Manuscripts', extensions: ['docx', 'txt', 'md'] }]
+    filters: [{ name: t('Manuscripts'), extensions: ['docx', 'txt', 'md'] }]
   });
   if (canceled || !filePaths.length) return [];
   const out = [];
@@ -903,9 +1023,11 @@ const SPELL_LANGUAGES = {
   'en-GB': { label: 'English (UK)', pkg: 'dictionary-en-gb' },
   'en-CA': { label: 'English (Canada)', pkg: 'dictionary-en-ca' },
   'en-AU': { label: 'English (Australia)', pkg: 'dictionary-en-au' },
-  'fr': { label: 'French', pkg: 'dictionary-fr' },
-  'es': { label: 'Spanish', pkg: 'dictionary-es' },
-  'de': { label: 'German', pkg: 'dictionary-de' }
+  'fr': { label: 'Français', pkg: 'dictionary-fr' },
+  'es': { label: 'Español', pkg: 'dictionary-es' },
+  'de': { label: 'Deutsch', pkg: 'dictionary-de' },
+  'nl': { label: 'Nederlands', pkg: 'dictionary-nl' },
+  'pl': { label: 'Polski', pkg: 'dictionary-pl' }
 };
 
 // The dictionary work runs in a helper process (spell-worker.js): parsing
@@ -1035,16 +1157,29 @@ function buildMenu() {
   const template = [
     // appMenu exists only on macOS — including it on Windows throws,
     // which is exactly what kept NEO from ever opening a window there
-    ...(isMac ? [{ role: 'appMenu' }] : []),
+    ...(isMac ? [{
+      role: 'appMenu',
+      submenu: [
+        { role: 'about', label: t('About NEO') },
+        { type: 'separator' },
+        { role: 'services', label: t('Services') },
+        { type: 'separator' },
+        { role: 'hide', label: t('Hide NEO') },
+        { role: 'hideOthers', label: t('Hide Others') },
+        { role: 'unhide', label: t('Show All') },
+        { type: 'separator' },
+        { role: 'quit', label: t('Quit NEO') }
+      ]
+    }] : []),
     {
-      label: 'File',
+      label: t('File'),
       submenu: [
         {
-          label: 'Export',
+          label: t('Export'),
           submenu: [
-            { label: 'Plain Text (.txt)', click: () => sendToWindow({ type: 'export', format: 'txt' }) },
+            { label: t('Plain Text (.txt)'), click: () => sendToWindow({ type: 'export', format: 'txt' }) },
             { label: 'Markdown (.md)', click: () => sendToWindow({ type: 'export', format: 'md' }) },
-            { label: 'Web Page (.html)', click: () => sendToWindow({ type: 'export', format: 'html' }) },
+            { label: t('Web Page (.html)'), click: () => sendToWindow({ type: 'export', format: 'html' }) },
             { label: 'PDF (.pdf)', click: () => sendToWindow({ type: 'export', format: 'pdf' }) },
             { label: 'Word (.docx)', click: () => sendToWindow({ type: 'export', format: 'docx' }) },
             { label: 'EPUB (.epub)', click: () => sendToWindow({ type: 'export', format: 'epub' }) }
@@ -1052,56 +1187,57 @@ function buildMenu() {
         },
         { type: 'separator' },
         {
-          label: 'Email Draft to Myself',
+          label: t('Email Draft to Myself'),
           accelerator: 'CmdOrCtrl+E',
           click: () => sendToWindow({ type: 'emailDraft' })
         },
-        { label: 'Email Settings…', click: () => sendToWindow({ type: 'emailSettings' }) },
-        { label: 'Cover Art…', click: () => sendToWindow({ type: 'coverArt' }) },
+        { label: t('Email Settings…'), click: () => sendToWindow({ type: 'emailSettings' }) },
+        { label: t('Cover Art…'), click: () => sendToWindow({ type: 'coverArt' }) },
         {
-          label: 'Goals…',
+          label: t('Goals…'),
           accelerator: 'CmdOrCtrl+,',
           click: () => sendToWindow({ type: 'stats' })
         },
         {
-          label: 'New Books Open To',
+          label: t('New Books Open To'),
           submenu: [
-            { label: 'Blank Page', type: 'radio', checked: writingStyle !== 'plotter', click: () => sendToWindow({ type: 'writingStyle', value: 'pantser' }) },
-            { label: 'Outline First', type: 'radio', checked: writingStyle === 'plotter', click: () => sendToWindow({ type: 'writingStyle', value: 'plotter' }) }
+            { label: t('Blank Page'), type: 'radio', checked: writingStyle !== 'plotter', click: () => sendToWindow({ type: 'writingStyle', value: 'pantser' }) },
+            { label: t('Outline First'), type: 'radio', checked: writingStyle === 'plotter', click: () => sendToWindow({ type: 'writingStyle', value: 'plotter' }) }
           ]
         },
         { type: 'separator' },
         {
-          label: 'Import Manuscripts…',
+          label: t('Import Manuscripts…'),
           accelerator: 'CmdOrCtrl+Shift+I',
           click: () => sendToWindow({ type: 'import' })
         },
-        { label: 'Reshelve a Book…', click: () => sendToWindow({ type: 'reshelve' }) },
-        { label: 'Library Folder…', click: () => { chooseLibraryFolder().catch((err) => logError('library folder', err)); } },
+        { label: t('Reshelve a Book…'), click: () => sendToWindow({ type: 'reshelve' }) },
+        { label: t('Library Folder…'), click: () => { chooseLibraryFolder().catch((err) => logError('library folder', err)); } },
         { type: 'separator' },
-        ...(isMac ? [{ role: 'close' }] : [{ role: 'quit' }])
+        ...(isMac ? [{ role: 'close', label: t('Close Window') }] : [{ role: 'quit', label: t('Quit') }])
       ]
     },
     {
-      label: 'Edit',
+      label: t('Edit'),
       submenu: [
-        { role: 'undo' }, { role: 'redo' },
+        // standard items carry their own labels, so they follow NEO's language
+        { role: 'undo', label: t('Undo') }, { role: 'redo', label: t('Redo') },
         { type: 'separator' },
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
-        { role: 'pasteAndMatchStyle' }, { role: 'selectAll' },
+        { role: 'cut', label: t('Cut') }, { role: 'copy', label: t('Copy') }, { role: 'paste', label: t('Paste') },
+        { role: 'pasteAndMatchStyle', label: t('Paste and Match Style') }, { role: 'selectAll', label: t('Select All') },
         { type: 'separator' },
         {
-          label: isMac ? 'Find & Replace' : 'Find && Replace',
+          label: isMac ? t('Find & Replace') : t('Find & Replace').replace(/&/g, '&&'),
           accelerator: 'CmdOrCtrl+F',
           click: () => sendToWindow({ type: 'find' })
         },
         {
-          label: 'Spellcheck Pass',
+          label: t('Spellcheck Pass'),
           accelerator: 'CmdOrCtrl+;',
           click: () => sendToWindow({ type: 'spellcheck' })
         },
         {
-          label: 'Spellcheck Language',
+          label: t('Spellcheck Language'),
           submenu: Object.entries(SPELL_LANGUAGES).map(([code, lang]) => ({
             label: lang.label,
             type: 'radio',
@@ -1112,45 +1248,45 @@ function buildMenu() {
       ]
     },
     {
-      label: 'Format',
+      label: t('Format'),
       submenu: [
         {
-          label: 'Body Font',
+          label: t('Body Font'),
           submenu: [
             ...bodyFonts.map((f) => ({
               label: f,
               click: () => sendToWindow({ type: 'bodyFont', value: f })
             })),
             { type: 'separator' },
-            { label: 'Other Font…', click: () => sendToWindow({ type: 'bodyFontPick' }) }
+            { label: t('Other Font…'), click: () => sendToWindow({ type: 'bodyFontPick' }) }
           ]
         },
         {
-          label: 'Drop Cap Style',
+          label: t('Drop Cap Style'),
           submenu: [
-            { label: 'Literary', click: () => sendToWindow({ type: 'dropCap', value: 'literary' }) },
-            { label: 'Fantasy', click: () => sendToWindow({ type: 'dropCap', value: 'fantasy' }) },
-            { label: 'Sci-Fi', click: () => sendToWindow({ type: 'dropCap', value: 'scifi' }) },
+            { label: t('Literary'), click: () => sendToWindow({ type: 'dropCap', value: 'literary' }) },
+            { label: t('Fantasy'), click: () => sendToWindow({ type: 'dropCap', value: 'fantasy' }) },
+            { label: t('Sci-Fi'), click: () => sendToWindow({ type: 'dropCap', value: 'scifi' }) },
             { type: 'separator' },
-            { label: 'Off', click: () => sendToWindow({ type: 'dropCap', value: 'none' }) }
+            { label: t('Off'), click: () => sendToWindow({ type: 'dropCap', value: 'none' }) }
           ]
         },
         {
-          label: 'Align Paragraph',
+          label: t('Align Paragraph'),
           submenu: [
-            { label: 'Left', accelerator: 'CmdOrCtrl+Shift+L', click: () => sendToWindow({ type: 'align', value: 'left' }) },
-            { label: 'Center', accelerator: 'CmdOrCtrl+Shift+C', click: () => sendToWindow({ type: 'align', value: 'center' }) },
-            { label: 'Right', accelerator: 'CmdOrCtrl+Shift+R', click: () => sendToWindow({ type: 'align', value: 'right' }) },
-            { label: 'Justify', accelerator: 'CmdOrCtrl+Shift+J', click: () => sendToWindow({ type: 'align', value: 'justify' }) }
+            { label: t('Left'), accelerator: 'CmdOrCtrl+Shift+L', click: () => sendToWindow({ type: 'align', value: 'left' }) },
+            { label: t('Center'), accelerator: 'CmdOrCtrl+Shift+C', click: () => sendToWindow({ type: 'align', value: 'center' }) },
+            { label: t('Right'), accelerator: 'CmdOrCtrl+Shift+R', click: () => sendToWindow({ type: 'align', value: 'right' }) },
+            { label: t('Justify'), accelerator: 'CmdOrCtrl+Shift+J', click: () => sendToWindow({ type: 'align', value: 'justify' }) }
           ]
         },
         { type: 'separator' },
-        { label: 'Larger Text', accelerator: 'CmdOrCtrl-Plus', click: () => sendToWindow({ type: 'fontSize', value: 1 }) },
-        { label: 'Smaller Text', accelerator: 'CmdOrCtrl-Minus', click: () => sendToWindow({ type: 'fontSize', value: -1 }) },
-        { label: 'Reset Text Size', accelerator: 'CmdOrCtrl+0', click: () => sendToWindow({ type: 'fontSize', value: 0 }) },
+        { label: t('Larger Text'), accelerator: 'CmdOrCtrl-Plus', click: () => sendToWindow({ type: 'fontSize', value: 1 }) },
+        { label: t('Smaller Text'), accelerator: 'CmdOrCtrl-Minus', click: () => sendToWindow({ type: 'fontSize', value: -1 }) },
+        { label: t('Reset Text Size'), accelerator: 'CmdOrCtrl+0', click: () => sendToWindow({ type: 'fontSize', value: 0 }) },
         { type: 'separator' },
         {
-          label: 'Typewriter Scrolling',
+          label: t('Typewriter Scrolling'),
           accelerator: 'CmdOrCtrl+Shift+T',
           type: 'checkbox',
           checked: typewriterState,
@@ -1160,7 +1296,7 @@ function buildMenu() {
         // ticks when the caret sits in a poetry paragraph; ⇧Enter is the
         // editor's own key, so no accelerator here
         {
-          label: 'Poetry Paragraph\t⇧Enter',
+          label: t('Poetry Paragraph') + '\t⇧Enter',
           type: 'checkbox',
           checked: poetryState,
           click: () => sendToWindow({ type: 'poetry' })
@@ -1168,10 +1304,10 @@ function buildMenu() {
       ]
     },
     {
-      label: 'View',
+      label: t('View'),
       submenu: [
         {
-          label: 'Full Screen',
+          label: t('Full Screen'),
           accelerator: 'CmdOrCtrl+Shift+F',
           click: () => {
             const w = BrowserWindow.getFocusedWindow();
@@ -1179,45 +1315,65 @@ function buildMenu() {
           }
         },
         {
-          label: 'Focus Mode',
+          label: t('Focus Mode'),
           submenu: [
-            { label: 'Cycle', accelerator: 'CmdOrCtrl+Shift+O', click: () => sendToWindow({ type: 'focusCycle' }) },
+            { label: t('Cycle'), accelerator: 'CmdOrCtrl+Shift+O', click: () => sendToWindow({ type: 'focusCycle' }) },
             { type: 'separator' },
-            { label: 'Sentence', click: () => sendToWindow({ type: 'focus', value: 'sentence' }) },
-            { label: 'Paragraph', click: () => sendToWindow({ type: 'focus', value: 'paragraph' }) },
-            { label: 'Off', click: () => sendToWindow({ type: 'focus', value: 'off' }) }
+            { label: t('Sentence'), click: () => sendToWindow({ type: 'focus', value: 'sentence' }) },
+            { label: t('Paragraph'), click: () => sendToWindow({ type: 'focus', value: 'paragraph' }) },
+            { label: t('Off'), click: () => sendToWindow({ type: 'focus', value: 'off' }) }
           ]
         },
         { type: 'separator' },
         {
-          label: 'Page',
+          label: t('Page'),
           submenu: [
-            { label: 'Night', click: () => sendToWindow({ type: 'pageTheme', value: 'night' }) },
-            { label: 'Paper', click: () => sendToWindow({ type: 'pageTheme', value: 'paper' }) }
+            { label: t('Night'), click: () => sendToWindow({ type: 'pageTheme', value: 'night' }) },
+            { label: t('Paper'), click: () => sendToWindow({ type: 'pageTheme', value: 'paper' }) }
           ]
         },
         {
-          label: 'Brighter Interface',
+          label: t('Brighter Interface'),
           click: () => sendToWindow({ type: 'uiBright' })
+        },
+        { type: 'separator' },
+        {
+          label: t('Language'),
+          submenu: listLanguages().map((lang) => ({
+            label: lang.name,
+            type: 'radio',
+            checked: uiLanguage === lang.code,
+            click: () => setUiLanguage(lang.code)
+          }))
         }
       ]
     },
-    { role: 'windowMenu' },
     {
-      label: 'Help',
+      role: 'windowMenu',
+      label: t('Window'),
+      submenu: [
+        { role: 'minimize', label: t('Minimize') },
+        { role: 'zoom', label: t('Zoom') },
+        ...(isMac
+          ? [{ type: 'separator' }, { role: 'front', label: t('Bring All to Front') }]
+          : [{ role: 'close', label: t('Close') }])
+      ]
+    },
+    {
+      label: t('Help'),
       submenu: [
         {
-          label: 'NEO Shortcuts',
+          label: t('NEO Shortcuts'),
           accelerator: 'CmdOrCtrl+/',
           click: () => sendToWindow({ type: 'help' })
         },
         { type: 'separator' },
         {
-          label: 'About NEO',
+          label: t('About NEO'),
           click: () => sendToWindow({ type: 'about' })
         },
         {
-          label: 'Check for Update…',
+          label: t('Check for Update…'),
           click: () => sendToWindow({ type: 'checkUpdate' })
         }
       ]
@@ -1348,6 +1504,7 @@ app.whenReady().then(() => {
       }
     }
 
+    try { initLanguage(); } catch (err) { logError('language', err); }
     try { ensureLibrary(); } catch (err) { logError('library', err); }
     createWindow();
     try { initSpell(); } catch (err) { logError('spell', err); }
@@ -1358,8 +1515,8 @@ app.whenReady().then(() => {
     // catastrophic: tell the human instead of dying in silence
     logError('startup', err);
     try {
-      dialog.showErrorBox('NEO failed to start',
-        'Please report this at github.com/hughhowey/neo/issues:\n\n' + String((err && err.stack) || err));
+      dialog.showErrorBox(t('NEO failed to start'),
+        t('Please report this at github.com/hughhowey/neo/issues:') + '\n\n' + String((err && err.stack) || err));
     } catch { /* nothing left to try */ }
   }
   app.on('activate', () => {

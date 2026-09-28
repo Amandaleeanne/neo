@@ -483,7 +483,7 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off) p:not(.po
   outline: none; user-select: text; min-width: 10px; display: inline-block;
 }
 .chapter-head .ch-title:empty::before {
-  content: 'add a title'; color: #c4beb0; font-style: italic;
+  content: var(--ph-add-title, 'add a title'); color: #c4beb0; font-style: italic;
   letter-spacing: 1px; text-transform: none; opacity: 0;
   transition: opacity 0.15s;
 }
@@ -568,7 +568,7 @@ body.bright .spell-menu button { color: #eee; }
   font-family: var(--body-font); font-size: calc(var(--editor-size, 16px) * var(--page-zoom, 1)); line-height: 1.7; outline: none;
   min-height: 50vh;
 }
-#aux-editor:empty::before { content: 'Write freely…'; color: #b9b4a8; font-style: italic; }
+#aux-editor:empty::before { content: var(--ph-write-freely, 'Write freely…'); color: #b9b4a8; font-style: italic; }
 
 /* --- Structured outline tab --- */
 .ol-line {
@@ -588,8 +588,8 @@ body.bright .spell-menu button { color: #eee; }
 }
 .ol-text:focus { border-bottom-color: #d8d2c2; }
 .ol-text:empty::before { color: #b9b4a8; font-style: italic; }
-.ol-chapter .ol-text:empty::before { content: 'What happens in this chapter…'; }
-.ol-section .ol-text:empty::before { content: 'What happens in this section…'; }
+.ol-chapter .ol-text:empty::before { content: var(--ph-ol-chapter, 'What happens in this chapter…'); }
+.ol-section .ol-text:empty::before { content: var(--ph-ol-section, 'What happens in this section…'); }
 .ol-hint {
   margin-top: 40px; color: #b9b4a8; font-size: 12.5px; font-style: italic;
   line-height: 1.7; text-align: center;
@@ -656,7 +656,7 @@ body.bright .spell-menu button { color: #eee; }
   margin-top: 4px; font-size: 12px; line-height: 1.45; color: #777;
   outline: none; min-height: 15px; cursor: text;
 }
-.nav-note:empty::before { content: 'What happens here…'; color: #4a4a4a; font-style: italic; }
+.nav-note:empty::before { content: var(--ph-nav-note, 'What happens here…'); color: #4a4a4a; font-style: italic; }
 .nav-note:focus { color: #ccc; }
 #nav-add {
   display: block; width: calc(100% - 36px); margin: 14px 18px 0;
@@ -699,6 +699,8 @@ body.bright .spell-menu button { color: #eee; }
   background: none; border: none; color: #666; font-size: 11px;
 }
 .sticky .s-actions button:hover { color: var(--accent); }
+/* keeps the two actions from reading as one phrase */
+.sticky .s-actions .s-sep { color: #555; margin: 0 2px; }
 .stickies-empty { text-align: center; color: #555; font-size: 12px; padding: 30px 14px; line-height: 1.6; }
 
 /* --- Bottom bar --- */
@@ -794,7 +796,8 @@ body.bright .spell-menu button { color: #eee; }
   margin: 16px 0 8px;
 }
 .help-grid {
-  display: grid; grid-template-columns: 110px 1fr; gap: 6px 16px;
+  /* the key column grows for languages with longer labels */
+  display: grid; grid-template-columns: minmax(110px, max-content) 1fr; gap: 6px 16px;
   font-size: 13.5px; line-height: 1.45; color: #bbb;
 }
 .help-grid .hk { color: #eee; font-weight: 600; white-space: nowrap; }
