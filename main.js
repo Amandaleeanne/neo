@@ -1315,6 +1315,12 @@ function buildMenu() {
       label: t('View'),
       submenu: [
         {
+          label: t('Keyboard Shortcuts…'),
+          accelerator: 'CmdOrCtrl+/',
+          click: () => sendToWindow({ type: 'help' })
+        },
+        { type: 'separator' },
+        {
           label: t('Full Screen'),
           accelerator: 'CmdOrCtrl+Shift+F',
           click: () => {
@@ -1372,7 +1378,6 @@ function buildMenu() {
       submenu: [
         {
           label: t('NEO Shortcuts'),
-          accelerator: 'CmdOrCtrl+/',
           click: () => sendToWindow({ type: 'help' })
         },
         { type: 'separator' },
