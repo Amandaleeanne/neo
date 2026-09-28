@@ -236,10 +236,13 @@ function showFirstRun() {
     const capRow = $('#fr-dropcaps');
     capRow.innerHTML = '';
     const caps = { literary: t('Literary'), fantasy: t('Fantasy'), scifi: t('Sci-Fi') };
+    // an A of the alphabet the sample is written in, so each button shows
+    // the drop cap the writer will get (Cyrillic letters come from other faces)
+    const capA = /\p{Script=Cyrillic}/u.test($('#fr-sample-text').textContent) ? 'А' : 'A';
     for (const key of Object.keys(caps)) {
       const b = document.createElement('button');
       b.className = 'fr-font' + (picked.dropcap === key ? ' sel' : '');
-      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">A</span>${caps[key]}`;
+      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">${capA}</span>${caps[key]}`;
       b.onmouseenter = () => { document.documentElement.style.setProperty('--dropcap-font', DROPCAP_FONTS[key]); };
       b.onmouseleave = preview;
       b.onclick = () => {

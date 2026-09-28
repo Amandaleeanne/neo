@@ -309,10 +309,13 @@ const NeoCovers = (() => {
     'и', 'а', 'но', 'или', 'в', 'во', 'на', 'о', 'об', 'с', 'со', 'к', 'по', 'из', 'за', 'от', 'до', 'для', 'без', 'под', 'над', 'про', 'у', 'мой', 'моя', 'моё', 'мои', 'его', 'её', 'их' // ru
   ].map(connKey));
 
-  // fonts must be in before anything is measured
+  // fonts must be in before anything is measured. A face only loads for the
+  // letters it covers, so the sample text names a Latin and a Cyrillic one:
+  // a Russian title measured before its face arrived would not fill the line.
+  const SAMPLE = 'Aя';
   const ready = (typeof document !== 'undefined' && document.fonts)
-    ? Promise.all(TEMPLATES.map((t) => document.fonts.load(`${t.weight} 20px "${t.family}"`)))
-        .then(() => document.fonts.load('italic 900 20px "NEO Playfair"'))
+    ? Promise.all(TEMPLATES.map((t) => document.fonts.load(`${t.weight} 20px "${t.family}"`, SAMPLE)))
+        .then(() => document.fonts.load('italic 900 20px "NEO Playfair"', SAMPLE))
         .catch(() => null)
     : Promise.resolve();
 

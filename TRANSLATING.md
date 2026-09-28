@@ -65,6 +65,10 @@ While writing, NEO sets the quotation marks of the language being written: the s
 
 Imports recognize chapter headings in all these languages (`CHAPTER_WORDS` in `main.js`), and cover titles treat each language's small words like "of" and "the" (`CONNECTORS` in `covers.js`).
 
+## Fonts in other alphabets
+
+Most fonts NEO bundles (the body fonts on Linux, the drop caps and the cover titles, in `fonts/`) have Latin letters only. For Russian, each has a companion under the same font name in `styles.css` that supplies the Cyrillic letters, so Latin text looks exactly as before. A language with letters of its own needs the same check: every bundled font, companions included, must carry them.
+
 ## For developers
 
 The English text is the key. In the window (`app.js`) and the main process (`main.js`), wrap every string a writer can see:
