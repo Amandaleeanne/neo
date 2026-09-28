@@ -491,5 +491,17 @@
   "Control": "Contrôle",
   "or": "ou",
   "Chapter Titles Only": "Titres des chapitres seulement",
-  "Keyboard Shortcuts…": "Raccourcis clavier…"
+  "Keyboard Shortcuts…": "Raccourcis clavier…",
+  "Epilogue": "Épilogue",
+  "It closes the book after the last chapter, unnumbered.": "Il referme le livre après le dernier chapitre, sans numéro.",
+  "It goes back to being a numbered chapter.": "Il redevient un chapitre numéroté.",
+  "It opens the book before Chapter 1, unnumbered; the chapters after it renumber.": "Il ouvre le livre avant le chapitre 1, sans numéro ; les chapitres suivants se renumérotent.",
+  "Make it the epilogue": "En faire l’épilogue",
+  "Make it the prologue": "En faire le prologue",
+  "Number it again": "Le renuméroter",
+  "Prologue": "Prologue",
+  "{name}: {n} words": {
+    "one": "{name} : {n} mot",
+    "other": "{name} : {n} mots"
+  }
 }

@@ -486,5 +486,17 @@
   "Control": "Control",
   "or": "of",
   "Chapter Titles Only": "Alleen hoofdstuktitels",
-  "Keyboard Shortcuts…": "Sneltoetsen…"
+  "Keyboard Shortcuts…": "Sneltoetsen…",
+  "Epilogue": "Epiloog",
+  "It closes the book after the last chapter, unnumbered.": "Het sluit het boek af na het laatste hoofdstuk, zonder nummer.",
+  "It goes back to being a numbered chapter.": "Het wordt weer een genummerd hoofdstuk.",
+  "It opens the book before Chapter 1, unnumbered; the chapters after it renumber.": "Het opent het boek vóór hoofdstuk 1, zonder nummer; de hoofdstukken erna worden opnieuw genummerd.",
+  "Make it the epilogue": "Maak er de epiloog van",
+  "Make it the prologue": "Maak er de proloog van",
+  "Number it again": "Weer nummeren",
+  "Prologue": "Proloog",
+  "{name}: {n} words": {
+    "one": "{name}: {n} woord",
+    "other": "{name}: {n} woorden"
+  }
 }

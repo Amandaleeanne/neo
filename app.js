@@ -46,6 +46,41 @@ const tabName = (kind) => {
   return n === 'Notes' || n === 'Outline' ? t(n) : n;
 };
 
+// Prologue and epilogue: the first and last chapters can stand outside the
+// numbering. The book remembers which chapter holds each role, and a role
+// only counts while that chapter is still first (prologue) or last
+// (epilogue) in a book of two chapters or more.
+function chapterRole(chId, meta = book) {
+  const order = (meta && meta.chapterOrder) || [];
+  if (order.length < 2) return null;
+  if (meta.prologue === chId && order[0] === chId) return 'prologue';
+  if (meta.epilogue === chId && order[order.length - 1] === chId) return 'epilogue';
+  return null;
+}
+// the chapter's number, counted after the prologue
+function chapterNumber(chId, meta = book) {
+  const order = meta.chapterOrder;
+  return order.indexOf(chId) + 1 - (chapterRole(order[0], meta) === 'prologue' ? 1 : 0);
+}
+function chapterName(chId, meta = book) {
+  const role = chapterRole(chId, meta);
+  if (role === 'prologue') return t('Prologue');
+  if (role === 'epilogue') return t('Epilogue');
+  return t('Chapter {n}', { n: chapterNumber(chId, meta) });
+}
+// where there's only room for a number, a fleuron marks the other two
+const chapterMark = (chId, meta = book) => (chapterRole(chId, meta) ? '❦' : String(chapterNumber(chId, meta)));
+// how many numbered chapters the book has
+const numberedChapters = (meta = book) => meta.chapterOrder.filter((c) => !chapterRole(c, meta)).length;
+// a role whose chapter moved away or was deleted is let go
+function settleChapterRoles() {
+  let changed = false;
+  for (const role of ['prologue', 'epilogue']) {
+    if (book[role] && chapterRole(book[role]) !== role) { delete book[role]; changed = true; }
+  }
+  if (changed) scheduleMetaSave();
+}
+
 const isUntitled = (s) => !s || s === 'Untitled' || s === t('Untitled');
 
 // ---------- state ----------
@@ -1114,6 +1149,7 @@ function renderChapters() {
   wrap.innerHTML = '';
   wordCache = {};
   book.chapterTitles = book.chapterTitles || {};
+  settleChapterRoles();
   // a lone chapter is just "the story" — no heading until a second one exists,
   // at which point both appear, numbered in retrospect
   const solo = book.chapterOrder.length === 1;
@@ -1126,7 +1162,9 @@ function renderChapters() {
     head.title = t('Right-click for chapter options · click after the number to add a title');
     const num = document.createElement('span');
     num.className = 'ch-num';
-    num.textContent = t('Chapter {n}', { n: i + 1 });
+    num.textContent = chapterName(chId);
+    const role = chapterRole(chId);
+    if (role) sec.classList.add(role);
     const sep = document.createElement('span');
     sep.className = 'ch-sep';
     sep.textContent = '—';
@@ -1157,7 +1195,7 @@ function renderChapters() {
     head.appendChild(titleSpan);
     head.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      chapterMenu(chId, i);
+      chapterMenu(chId);
     });
     const body = document.createElement('div');
     body.className = 'chapter-body';
@@ -1201,7 +1239,7 @@ async function deleteChapterToDarlings(chId) {
       html: bodyEl ? bodyEl.innerHTML : chapterHTML[chId],
       text: text.slice(0, 2000),
       chapterId: null,
-      chapterLabel: t('deleted Chapter {n}', { n: index + 1 }),
+      chapterLabel: chapterRole(chId) ? chapterName(chId) : t('deleted Chapter {n}', { n: chapterNumber(chId) }),
       date: new Date().toISOString()
     });
     await window.neo.writeJSON(book.id, 'darlings', darlings);
@@ -1211,15 +1249,43 @@ async function deleteChapterToDarlings(chId) {
   if (text) toast(t('Chapter removed — its words are in Darlings, or {key} to undo', { key: KZ }));
 }
 
-async function chapterMenu(chId, index) {
+// Right-click a chapter heading or outline line: the first chapter can
+// become the prologue, the last the epilogue, and either can go back.
+function chapterRoleOptions(chId) {
+  const order = book.chapterOrder;
+  if (order.length < 2) return [];
+  const role = chapterRole(chId);
+  if (role) return [{ label: t('Number it again'), desc: t('It goes back to being a numbered chapter.'), value: 'unrole' }];
+  if (chId === order[0]) return [{ label: t('Make it the prologue'), desc: t('It opens the book before Chapter 1, unnumbered; the chapters after it renumber.'), value: 'prologue' }];
+  if (chId === order[order.length - 1]) return [{ label: t('Make it the epilogue'), desc: t('It closes the book after the last chapter, unnumbered.'), value: 'epilogue' }];
+  return [];
+}
+async function chapterMenuFor(chId) {
   const words = countWords(chapterText(chId));
   const choice = await optionModal(
-    t('Chapter {n}', { n: index + 1 }),
+    chapterName(chId),
     words ? t('{n} words.', { n: words }) : t('This chapter is empty.'),
-    [{ label: t('Delete chapter'), desc: words ? t('Its words move to Darlings, recoverable anytime.') : t('Nothing to save — it just goes.'), danger: true, value: 'delete' }]
+    [
+      ...chapterRoleOptions(chId),
+      { label: t('Delete chapter'), desc: words ? t('Its words move to Darlings, recoverable anytime.') : t('Nothing to save — it just goes.'), danger: true, value: 'delete' }
+    ]
   );
-  if (choice === 'delete') await deleteChapterToDarlings(chId);
+  if (choice === 'delete') {
+    await deleteChapterToDarlings(chId);
+  } else if (choice === 'prologue' || choice === 'epilogue') {
+    book[choice] = chId;
+  } else if (choice === 'unrole') {
+    delete book[chapterRole(chId)];
+  }
+  if (choice && choice !== 'delete') {
+    saveMeta();
+    renderChapters();
+    if (currentTab === 'outline') renderOutline();
+    updateCounters();
+  }
+  return choice;
 }
+async function chapterMenu(chId) { await chapterMenuFor(chId); }
 
 /* ================================================================== */
 /*  EDITOR — typing                                                    */
@@ -2413,7 +2479,7 @@ function renderStickies() {
     el.className = 'sticky unresolved';
     el.dataset.sid = s.id;
     el.innerHTML = `
-      <div class="s-ch">${chIdx >= 0 ? t('Chapter {n}', { n: chIdx + 1 }) : t('Unplaced')}</div>
+      <div class="s-ch">${chIdx >= 0 ? chapterName(s.chapterId) : t('Unplaced')}</div>
       <textarea placeholder="${t('What needs doing here?')}" spellcheck="false"></textarea>
       <div class="s-actions"><button class="s-go">${t('Go to')}</button><span class="s-sep">·</span><button class="s-done">${t('Resolve')}</button></div>`;
     const ta = el.querySelector('textarea');
@@ -2532,7 +2598,7 @@ function renderNav() {
       <span style="display:flex;align-items:center"><span class="n-words">${fmtNum(words)}</span>${flagged ? `<span class="n-flag" title="${t('Unresolved placeholder')}"></span>` : ''}</span></div>`;
     item.querySelector('.n-label').textContent = book.chapterOrder.length === 1
       ? (book.title || t('The story'))
-      : (chTitle ? `${i + 1} · ${chTitle}` : t('Chapter {n}', { n: i + 1 }));
+      : (chTitle ? `${chapterMark(chId)} · ${chTitle}` : chapterName(chId));
 
     // the row is the drag handle, so the note below stays freely editable
     const rowEl = item.querySelector('.n-row');
@@ -2572,7 +2638,14 @@ function renderNav() {
 
 $('#nav-add').onclick = () => {
   switchTab('manuscript');
-  currentChapterId = book.chapterOrder[book.chapterOrder.length - 1] || null;
+  const order = book.chapterOrder;
+  // a new chapter goes at the end of the story, which is before an epilogue
+  const beforeEpilogue = chapterRole(order[order.length - 1]) === 'epilogue';
+  if (beforeEpilogue) {
+    focusChapter(createChapterAt(order.length - 1));
+    return;
+  }
+  currentChapterId = order[order.length - 1] || null;
   newChapter();
 };
 
@@ -2875,7 +2948,7 @@ async function moveSelectionToDarlings(html, text) {
     html: cleanHtml,
     text: text,
     chapterId: chId || null,
-    chapterLabel: chIdx >= 0 ? t('Chapter {n}', { n: chIdx + 1 }) : t('Manuscript'),
+    chapterLabel: chIdx >= 0 ? chapterName(chId) : t('Manuscript'),
     anchorPrefix,
     anchorSuffix,
     date: new Date().toISOString()
@@ -3009,7 +3082,7 @@ function renderOutline(focusTarget) {
   wrap.innerHTML = '';
 
   book.chapterOrder.forEach((chId, i) => {
-    wrap.appendChild(outlineLine('chapter', chId, null, i, String(i + 1),
+    wrap.appendChild(outlineLine('chapter', chId, null, i, chapterMark(chId),
       book.chapterNotes[chId] || ''));
     (book.sectionNotes[chId] || []).forEach((sec, j) => {
       wrap.appendChild(outlineLine('section', chId, sec.id, j, secLetter(j), sec.text));
@@ -3047,6 +3120,7 @@ function outlineLine(kind, chId, secId, index, label, text) {
   const num = document.createElement('span');
   num.className = 'ol-num';
   num.textContent = label;
+  if (kind === 'chapter' && chapterRole(chId)) num.title = chapterName(chId);
   const txt = document.createElement('div');
   txt.className = 'ol-text';
   txt.contentEditable = 'true';
@@ -3170,17 +3244,8 @@ function outlineLine(kind, chId, secId, index, label, text) {
   line.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
     if (kind === 'chapter') {
-      const i = book.chapterOrder.indexOf(chId);
-      const words = countWords(chapterText(chId));
-      const choice = await optionModal(
-        t('Chapter {n}', { n: i + 1 }),
-        words ? t('{n} words.', { n: words }) : t('This chapter is empty.'),
-        [{ label: t('Delete chapter'), desc: words ? t('Its words move to Darlings, recoverable anytime.') : t('Nothing to save — it just goes.'), danger: true, value: 'delete' }]
-      );
-      if (choice === 'delete') {
-        await deleteChapterToDarlings(chId);
-        renderOutline();
-      }
+      const choice = await chapterMenuFor(chId);
+      if (choice === 'delete') renderOutline();
     } else {
       const choice = await optionModal(t('Delete this section?'), null,
         [{ label: t('Delete section'), desc: t('Removes the outline line and its gray ghost from the manuscript. Written prose is never touched.'), danger: true, value: 'delete' }]);
@@ -3386,15 +3451,19 @@ function updateCounters() {
   } else {
     const n = currentChapterId ? chapterWords(currentChapterId) : 0;
     const idx = book.chapterOrder.indexOf(currentChapterId);
-    wc.textContent = t('ch. {ch}: {n} words', { ch: idx + 1, n });
+    wc.textContent = chapterRole(book.chapterOrder[idx])
+      ? t('{name}: {n} words', { name: chapterName(book.chapterOrder[idx]), n })
+      : t('ch. {ch}: {n} words', { ch: chapterNumber(book.chapterOrder[idx]), n });
   }
   const pos = $('#pos-counter');
   const idx = book.chapterOrder.indexOf(currentChapterId);
   pos.textContent = book.chapterOrder.length <= 1
     ? '' // a chapterless story needs no chapter locator
     : (idx >= 0
-      ? t('chapter {ch} of {total}', { ch: idx + 1, total: book.chapterOrder.length })
-      : t('{n} chapters', { n: book.chapterOrder.length }));
+      ? (chapterRole(book.chapterOrder[idx])
+        ? chapterName(book.chapterOrder[idx])
+        : t('chapter {ch} of {total}', { ch: chapterNumber(book.chapterOrder[idx]), total: numberedChapters() }))
+      : t('{n} chapters', { n: numberedChapters() }));
   // cache for the bookshelf progress bar
   if (book.wordCount !== total) {
     // only a true crossing earns a painting — a story that was already long
@@ -3767,6 +3836,7 @@ function snapshotStructure(label, opts) {
     rejoin: !!(opts && opts.rejoin),
     caret: captureCaret(),
     chapterOrder: [...book.chapterOrder],
+    roles: { prologue: book.prologue, epilogue: book.epilogue },
     chapterHTML: { ...chapterHTML },
     chapterTitles: { ...(book.chapterTitles || {}) },
     chapterNotes: { ...(book.chapterNotes || {}) },
@@ -3781,6 +3851,9 @@ async function structuralUndo() {
   const snap = undoStack.pop();
   if (!snap || !book) return;
   book.chapterOrder = snap.chapterOrder;
+  for (const role of ['prologue', 'epilogue']) {
+    if (snap.roles && snap.roles[role]) book[role] = snap.roles[role]; else delete book[role];
+  }
   chapterHTML = snap.chapterHTML;
   book.chapterTitles = snap.chapterTitles;
   book.chapterNotes = snap.chapterNotes;
@@ -4073,6 +4146,7 @@ async function addImportedBooks(results, shelf) {
       }).join('') || '<p><br></p>';
       await window.neo.writeChapter(meta.id, chId, html);
       if (ch.title) meta.chapterTitles[chId] = ch.title;
+      if (ch.role) meta[ch.role] = chId;
       meta.chapterOrder.push(chId);
       for (const p of ch.paras) words += countWords(p.text || '');
     }
@@ -5044,8 +5118,8 @@ function exportChapters() {
       ? ''
       : library.exportCustomChapterTitles && chTitle
         ? chTitle
-        : t('Chapter {n}', { n: i + 1 }) + (chTitle ? ' — ' + chTitle : '');
-    return { num: i + 1, heading, paras };
+        : chapterName(chId) + (chTitle ? ' — ' + chTitle : '');
+    return { num: i + 1, heading, paras, role: chapterRole(chId) };
   });
 }
 
@@ -5304,7 +5378,7 @@ function chapterXhtml(ch, d) {
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head><title>${escXml(ch.heading || d.title)}</title><link rel="stylesheet" type="text/css" href="style.css"/></head>
-<body><section epub:type="chapter">${ch.heading ? `<h1>${escXml(ch.heading)}</h1>` : ''}
+<body><section epub:type="${ch.role || 'chapter'}">${ch.heading ? `<h1>${escXml(ch.heading)}</h1>` : ''}
 ${paras}
 </section></body></html>`;
 }
@@ -5442,7 +5516,7 @@ async function shelfExportData(shelf, anthologyTitle) {
       const chTitle = (meta.chapterTitles || {})[meta.chapterOrder[i]];
       const heading = !multi
         ? meta.title
-        : (i === 0 ? meta.title : `${meta.title} — ${t('Chapter {n}', { n: i + 1 })}${chTitle ? ': ' + chTitle : ''}`);
+        : (i === 0 ? meta.title : `${meta.title} — ${chapterName(meta.chapterOrder[i], meta)}${chTitle ? ': ' + chTitle : ''}`);
       sections.push({ num, heading, paras });
     }
   }

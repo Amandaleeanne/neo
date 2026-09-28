@@ -732,6 +732,10 @@ const CHAPTER_WORDS = new RegExp('^(' + [
   'rozdział', 'rozdzial', 'część', 'czesc'                          // pl
 ].join('|') + ')(?![\\p{L}\\d])', 'iu');
 
+// A manuscript's own Prologue / Epilogue headings give those chapters their role
+const PROLOGUE_WORDS = /^(prologue|prólogo|prologo|prolog|proloog)(?![\p{L}\d])/iu;
+const EPILOGUE_WORDS = /^(epilogue|épilogue|epílogo|epilogo|epilog|epiloog)(?![\p{L}\d])/iu;
+
 async function importFile(fp) {
   const name = path.basename(fp).replace(/\.[^.]+$/, '');
   const ext = path.extname(fp).toLowerCase();
@@ -786,13 +790,15 @@ async function importFile(fp) {
     const chapters = [];
     let cur = [];
     let curTitle = '';
+    let curRole = null;
     let seenProse = false;
     let lastWasHeading = false;
     styledTitle = null;
     const close = () => {
-      if (cur.length) chapters.push({ title: curTitle, paras: cur });
+      if (cur.length) chapters.push({ title: curTitle, paras: cur, role: curRole });
       cur = [];
       curTitle = '';
+      curRole = null;
     };
     for (const p of paras) {
       const brk = usePageBreaks && p.pageBreak;
@@ -811,7 +817,11 @@ async function importFile(fp) {
         }
         close();
       }
-      if (isH) { curTitle = titleOf(p.text || ''); lastWasHeading = true; continue; } // the heading line is replaced by NEO's numbering
+      if (isH) {
+        const h = (p.text || '').replace(/^#{1,6}\s*/, '').trim();
+        curRole = PROLOGUE_WORDS.test(h) ? 'prologue' : EPILOGUE_WORDS.test(h) ? 'epilogue' : null;
+        curTitle = titleOf(p.text || ''); lastWasHeading = true; continue;
+      } // the heading line is replaced by NEO's numbering
       lastWasHeading = false;
       if (isBreak(p.text)) { cur.push({ scene: true }); continue; }
       if (p.text) { cur.push({ text: p.text }); seenProse = true; }
@@ -872,6 +882,10 @@ async function importFile(fp) {
     if (!chapters.length) chapters.push({ title: '', paras: [{ text: '' }] });
   }
 
+  // a role only holds in its place: the prologue first, the epilogue last
+  chapters.forEach((ch, i) => {
+    if ((ch.role === 'prologue' && i !== 0) || (ch.role === 'epilogue' && i !== chapters.length - 1) || chapters.length < 2) ch.role = null;
+  });
   return { name, title, author, chapters };
 }
 
