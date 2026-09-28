@@ -522,15 +522,15 @@
   "or": "lub",
   "Chapter Titles Only": "Tylko tytuły rozdziałów",
   "Keyboard Shortcuts…": "Skróty klawiszowe…",
+  "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Z Shift wstecz. Esc wraca do strony. Na półce: książki, potem nagłówek.",
   "Chapters": "Rozdziały",
-  "Title": "Tytuł",
-  "Outline note": "Notatka planu",
-  "Words written over the last 30 days": "Słowa napisane w ostatnich 30 dniach",
-  "Move between the page, the chapters, the notes and the bottom bar": "Przechodź między stroną, rozdziałami, notatkami i dolnym paskiem",
   "Interface Size": "Rozmiar interfejsu",
-  "Normal": "Normalny",
-  "Large (125%)": "Duży (125 %)",
   "Larger (150%)": "Większy (150 %)",
+  "Large (125%)": "Duży (125 %)",
   "Largest (200%)": "Największy (200 %)",
-  "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Z Shift wstecz. Esc wraca do strony. Na półce: książki, potem nagłówek."
+  "Move between the page, the chapters, the notes and the bottom bar": "Przechodź między stroną, rozdziałami, notatkami i dolnym paskiem",
+  "Normal": "Normalny",
+  "Outline note": "Notatka planu",
+  "Title": "Tytuł",
+  "Words written over the last 30 days": "Słowa napisane w ostatnich 30 dniach"
 }

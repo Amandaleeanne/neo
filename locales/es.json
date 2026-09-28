@@ -490,15 +490,15 @@
   "or": "o",
   "Chapter Titles Only": "Solo títulos de capítulos",
   "Keyboard Shortcuts…": "Atajos de teclado…",
+  "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Con Mayúsculas, hacia atrás. Esc vuelve a la página. En la biblioteca: los libros y luego la cabecera.",
   "Chapters": "Capítulos",
-  "Title": "Título",
-  "Outline note": "Nota del esquema",
-  "Words written over the last 30 days": "Palabras escritas en los últimos 30 días",
-  "Move between the page, the chapters, the notes and the bottom bar": "Pasar de la página a los capítulos, las notas y la barra inferior",
   "Interface Size": "Tamaño de la interfaz",
-  "Normal": "Normal",
-  "Large (125%)": "Grande (125 %)",
   "Larger (150%)": "Más grande (150 %)",
+  "Large (125%)": "Grande (125 %)",
   "Largest (200%)": "Máximo (200 %)",
-  "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Con Mayúsculas, hacia atrás. Esc vuelve a la página. En la biblioteca: los libros y luego la cabecera."
+  "Move between the page, the chapters, the notes and the bottom bar": "Pasar de la página a los capítulos, las notas y la barra inferior",
+  "Normal": "Normal",
+  "Outline note": "Nota del esquema",
+  "Title": "Título",
+  "Words written over the last 30 days": "Palabras escritas en los últimos 30 días"
 }
