@@ -10,6 +10,10 @@
   "(none — removed from shelves)": "(nessuno: tolto dagli scaffali)",
   "(optional — used on title pages if set)": "(facoltativo; usato nei frontespizi, se indicato)",
   "(regenerated automatically; edits here do nothing)": "(rigenerato automaticamente; modificarlo qui non serve a nulla)",
+  "{name}: {n} words": {
+    "one": "{name}: {n} parola",
+    "other": "{name}: {n} parole"
+  },
   "0 replaced": "Nessuna sostituzione",
   "30 days ago": "30 giorni fa",
   "a few cents a picture": "pochi centesimi per immagine",
@@ -128,6 +132,7 @@
   "Enter ×2": "Invio ×2",
   "Enter ×3": "Invio ×3",
   "Enter — new chapter (or section, from a section line) · Tab — turn a fresh chapter line into a section · Shift+Tab — turn a section into a chapter · Backspace on an empty line removes it": "Invio: nuovo capitolo (o sezione, da una riga di sezione) · Tab: trasforma una nuova riga di capitolo in sezione · Maiusc+Tab: trasforma una sezione in capitolo · Backspace su una riga vuota la elimina",
+  "Epilogue": "Epilogo",
   "Every book gets a cover on the shelf: an abstract with the title set in type. With an OpenAI key, NEO can also read a story once it passes {n} words and paint a cover from the text. Paintings stay on your shelf — exports never include them.": "Ogni libro ha una copertina sullo scaffale: una composizione astratta con il titolo in tipografia. Con una chiave OpenAI, NEO può anche leggere una storia quando supera le {n} parole e dipingere una copertina a partire dal testo. I dipinti restano sul tuo scaffale: le esportazioni non li includono mai.",
   "Every book in your library is already on a shelf": "Tutti i libri della tua libreria sono già su uno scaffale",
   "Export": "Esporta",
@@ -175,7 +180,10 @@
   "Import .docx, .txt, or .md manuscripts": "Importa manoscritti .docx, .txt o .md",
   "Import Manuscripts…": "Importa manoscritti…",
   "Importing…": "Importazione…",
+  "It closes the book after the last chapter, unnumbered.": "Chiude il libro dopo l’ultimo capitolo, senza numero.",
+  "It goes back to being a numbered chapter.": "Torna a essere un capitolo numerato.",
   "It leaves your manuscript but it is never lost.": "Lascia il tuo manoscritto, ma non va mai perso.",
+  "It opens the book before Chapter 1, unnumbered; the chapters after it renumber.": "Apre il libro prima del capitolo 1, senza numero; i capitoli successivi vengono rinumerati.",
   "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief…": "Era il migliore dei tempi, era il peggiore dei tempi, era l’età della saggezza, era l’età della follia, era l’epoca della fede…",
   "Its words move to Darlings, recoverable anytime.": "Le sue parole passano negli Scarti, recuperabili in qualsiasi momento.",
   "Justify": "Giustificato",
@@ -190,6 +198,8 @@
   "Literary": "Letterario",
   "low": "bassa",
   "Mail unavailable — snapshot saved to your Exports folder instead": "Mail non disponibile: l’istantanea è stata salvata nella tua cartella Exports",
+  "Make it the epilogue": "Rendilo l’epilogo",
+  "Make it the prologue": "Rendilo il prologo",
   "Manuscript": "Manoscritto",
   "Manuscripts": "Manoscritti",
   "medium": "media",
@@ -232,6 +242,7 @@
   "Notes & Comments": "Note e commenti",
   "Nothing to save — it just goes.": "Niente da salvare: se ne va e basta.",
   "Now: {font}": "Attuale: {font}",
+  "Number it again": "Rinumeralo",
   "of book goal": "dell’obiettivo del libro",
   "Off": "Disattivata",
   "OK": "OK",
@@ -265,6 +276,7 @@
   "Polish": "Polacco",
   "Preparing your draft…": "Preparazione della bozza…",
   "Previous (⇧Enter)": "Precedente (⇧Invio)",
+  "Prologue": "Prologo",
   "Quality": "Qualità",
   "Quit": "Esci",
   "Quit NEO": "Esci da NEO",
@@ -489,17 +501,5 @@
   "Control": "Controllo",
   "or": "o",
   "Chapter Titles Only": "Solo titoli dei capitoli",
-  "Keyboard Shortcuts…": "Scorciatoie da tastiera…",
-  "Epilogue": "Epilogo",
-  "It closes the book after the last chapter, unnumbered.": "Chiude il libro dopo l’ultimo capitolo, senza numero.",
-  "It goes back to being a numbered chapter.": "Torna a essere un capitolo numerato.",
-  "It opens the book before Chapter 1, unnumbered; the chapters after it renumber.": "Apre il libro prima del capitolo 1, senza numero; i capitoli successivi vengono rinumerati.",
-  "Make it the epilogue": "Rendilo l’epilogo",
-  "Make it the prologue": "Rendilo il prologo",
-  "Number it again": "Rinumeralo",
-  "Prologue": "Prologo",
-  "{name}: {n} words": {
-    "one": "{name}: {n} parola",
-    "other": "{name}: {n} parole"
-  }
+  "Keyboard Shortcuts…": "Scorciatoie da tastiera…"
 }

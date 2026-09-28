@@ -22,6 +22,10 @@
     "one": "{n} word.",
     "other": "{n} words."
   },
+  "{name}: {n} words": {
+    "one": "{name}: {n} word",
+    "other": "{name}: {n} words"
+  },
   "Anthology of {n} works exported: {file}": {
     "one": "Anthology of {n} work exported: {file}",
     "other": "Anthology of {n} works exported: {file}"
@@ -53,9 +57,5 @@
   "Sprint ended — {n} words in {min} min": {
     "one": "Sprint ended — {n} word in {min} min",
     "other": "Sprint ended — {n} words in {min} min"
-  },
-  "{name}: {n} words": {
-    "one": "{name}: {n} word",
-    "other": "{name}: {n} words"
   }
 }
