@@ -4978,8 +4978,11 @@ function showHelp() {
 /*  EXPORT + EMAIL                                                     */
 /* ================================================================== */
 
+// letters of every script stay (a Russian title keeps its name), only
+// punctuation goes
 function safeName(s) {
-  return (s || t('Untitled')).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  const clean = (x) => x.replace(/[^\p{L}\p{M}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-');
+  return clean(s || '') || clean(t('Untitled'));
 }
 
 // Every paragraph is rebuilt from its text runs, so exports carry only

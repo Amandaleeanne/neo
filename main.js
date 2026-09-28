@@ -836,7 +836,9 @@ async function importFile(fp) {
   // title page, not in the body. Detect, harvest, and remove them.
   let title = styledTitle || null;
   let author = null;
-  const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // letters of any script; NFC because a Mac may hand over the file name
+  // decomposed while the text inside is composed
+  const norm = (s) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   // "by Jane Doe" — or its equivalent in another language. Those words also
   // open ordinary sentences ("Par une nuit…", "Von Anfang an"), so outside
   // English the rest must look like a name: capitalized words (name
@@ -857,7 +859,7 @@ async function importFile(fp) {
     const titleish = t0 && t0.length < 90 && !/[.!?]$/.test(t0) && (
       (norm(t0).length > 3 && norm(name).includes(norm(t0))) ||
       !!bylineOf(t1) ||
-      (t0 === t0.toUpperCase() && /[A-Z].*[A-Z]/.test(t0) && t0.length < 60)
+      (t0 === t0.toUpperCase() && /\p{Lu}.*\p{Lu}/u.test(t0) && t0.length < 60)
     );
     if (titleish) {
       title = t0;

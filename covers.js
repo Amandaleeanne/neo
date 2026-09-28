@@ -294,6 +294,8 @@ const NeoCovers = (() => {
     { id: 'oswald', family: 'NEO Oswald',   weight: 700, caps: true,  anchor: 'top',    lead: 0.95, max: 40, minLines: 1, maxLines: 4, connectors: 'small', rule: true }
   ];
 
+  // a word's lookup form: lowercase letters, accents stripped (é → e, ё → е)
+  const connKey = (w) => w.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}]/gu, '');
   const CONNECTORS = new Set(['the', 'of', 'a', 'an', 'and', 'in', 'on', 'to', 'for', 'at', 'by', 'from', 'or', 'with', 'is', 'are', 'my', 'your', 'our', 'his', 'her', 'its',
     // small words of the other languages NEO speaks, so their titles set as
     // gracefully as English ones (accents are stripped before the lookup)
@@ -304,7 +306,7 @@ const NeoCovers = (() => {
     'il', 'lo', 'i', 'gli', 'di', 'della', 'dei', 'nel', 'nella', 'per', // it
     'het', 'een', 'van', 'op', 'met', // nl
     'w', 'z', 'na', 'do', 'ze', 'we' // pl
-  ]);
+  ].map(connKey));
 
   // fonts must be in before anything is measured
   const ready = (typeof document !== 'undefined' && document.fonts)
@@ -325,7 +327,7 @@ const NeoCovers = (() => {
   function breakLines(title, t) {
     const words = title.trim().split(/\s+/).filter(Boolean);
     if (!words.length) return [{ text: (typeof NeoI18n !== 'undefined' ? NeoI18n.t('Untitled') : 'Untitled'), small: false }];
-    const isConn = (w) => CONNECTORS.has(w.toLowerCase().replace(/[^a-z]/g, ''));
+    const isConn = (w) => CONNECTORS.has(connKey(w));
     let lines;
     if (words.length <= t.maxLines) {
       lines = words.map((w) => ({ text: w, small: isConn(w) && t.connectors !== 'inline' && words.length > 1 }));
