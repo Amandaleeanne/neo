@@ -729,7 +729,8 @@ const CHAPTER_WORDS = new RegExp('^(' + [
   'capitolo',                                                      // it
   'kapitel', 'prolog', 'epilog', 'teil',                           // de
   'hoofdstuk', 'proloog', 'epiloog', 'deel',                       // nl
-  'rozdział', 'rozdzial', 'część', 'czesc'                          // pl
+  'rozdział', 'rozdzial', 'część', 'czesc',                         // pl
+  'capitol', 'capitolul', 'partea'                                 // ro (prolog, epilog above)
 ].join('|') + ')(?![\\p{L}\\d])', 'iu');
 
 async function importFile(fp) {
@@ -844,7 +845,7 @@ async function importFile(fp) {
   const bylineOf = (s) => {
     const en = s.match(/^by\s+(.{2,60})$/i);
     if (en) return en[1];
-    const m = s.match(/^(?:par|por|von|di|door|autor:?)\s+(.{2,60})$/iu);
+    const m = s.match(/^(?:par|por|von|di|door|de|autor:?)\s+(.{2,60})$/iu);
     if (!m || /[.!?,;…]/.test(m[1])) return null;
     const words = m[1].trim().split(/\s+/);
     const particle = /^(de|da|di|do|dos|das|du|des|del|della|la|le|van|von|der|den|ten|ter|y|e)$/;

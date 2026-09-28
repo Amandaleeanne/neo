@@ -2157,7 +2157,8 @@ const QUOTE_STYLES = {
   es: { open: '«', close: '»' },                          // RAE: « » first
   it: { open: '«', close: '»' },
   de: { open: '„', close: '“' },
-  pl: { open: '„', close: '”' }
+  pl: { open: '„', close: '”' },
+  ro: { open: '„', close: '”' }
 };
 function writingLanguage() {
   return (library && library.spellLanguage) || NeoI18n.getLocale();
