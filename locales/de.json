@@ -489,5 +489,14 @@
   "Control": "Control",
   "or": "oder",
   "Chapter Titles Only": "Nur Kapiteltitel",
-  "Keyboard Shortcuts…": "Tastenkürzel…"
+  "Keyboard Shortcuts…": "Tastenkürzel…",
+  "Download": "Herunterladen",
+  "Downloading…": "Wird geladen…",
+  "Downloading… {done} of {total} MB": "Wird geladen… {done} von {total} MB",
+  "Downloaded. NEO will save your work and restart.": "Geladen. NEO speichert deine Arbeit und startet neu.",
+  "Restart to update": "Neu starten zum Aktualisieren",
+  "The update couldn’t be installed from here: {message}": "Das Update konnte hier nicht installiert werden: {message}",
+  "unknown error": "unbekannter Fehler",
+  "You can download it from the release page instead.": "Du kannst es stattdessen von der Release-Seite laden.",
+  "NEO {version} is available — Help → Check for Update… installs it": "NEO {version} ist verfügbar: Hilfe → Nach Updates suchen… installiert es"
 }

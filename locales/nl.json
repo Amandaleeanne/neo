@@ -486,5 +486,14 @@
   "Control": "Control",
   "or": "of",
   "Chapter Titles Only": "Alleen hoofdstuktitels",
-  "Keyboard Shortcuts…": "Sneltoetsen…"
+  "Keyboard Shortcuts…": "Sneltoetsen…",
+  "Download": "Downloaden",
+  "Downloading…": "Bezig met downloaden…",
+  "Downloading… {done} of {total} MB": "Bezig met downloaden… {done} van {total} MB",
+  "Downloaded. NEO will save your work and restart.": "Gedownload. NEO bewaart je werk en start opnieuw.",
+  "Restart to update": "Herstarten om bij te werken",
+  "The update couldn’t be installed from here: {message}": "De update kon hier niet worden geïnstalleerd: {message}",
+  "unknown error": "onbekende fout",
+  "You can download it from the release page instead.": "Je kunt hem downloaden van de releasepagina.",
+  "NEO {version} is available — Help → Check for Update… installs it": "NEO {version} is beschikbaar: Help → Zoek naar update… installeert hem"
 }

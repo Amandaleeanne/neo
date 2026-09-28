@@ -132,5 +132,12 @@
   "Toggle typewriter scrolling": "Deslocamento de máquina de escrever",
   "Hide other apps": "Ocultar as outras aplicações",
   "Chapter Titles Only": "Apenas títulos dos capítulos",
-  "Off → paragraph → sentence → off.": "Desligado → parágrafo → frase → desligado."
+  "Off → paragraph → sentence → off.": "Desligado → parágrafo → frase → desligado.",
+  "Downloading…": "A transferir…",
+  "Download": "Transferir",
+  "Downloading… {done} of {total} MB": "A transferir… {done} de {total} MB",
+  "Downloaded. NEO will save your work and restart.": "Transferido. O NEO vai guardar o seu trabalho e reiniciar.",
+  "You can download it from the release page instead.": "Pode transferi-la a partir da página de versões.",
+  "The update couldn’t be installed from here: {message}": "Não foi possível instalar a atualização a partir daqui: {message}",
+  "NEO {version} is available — Help → Check for Update… installs it": "O NEO {version} está disponível: Ajuda → Procurar atualização… instala-o"
 }
