@@ -4847,57 +4847,57 @@ function applyAlign(value) {
 // Routine text entry, cursor movement and dialog controls are intentionally omitted.
 function shortcutSections() {
   return [
-    { title: 'Writing', rows: [
-      ['Enter ×2', 'Insert a section break'],
-      ['Enter ×3', 'Start a new chapter'],
-      [K('⇧Enter', 'Shift+Enter'), 'Start or continue a poetry paragraph', 'Also works from a chapter heading.'],
-      [KPH, 'Insert a placeholder note'],
-      [KDA, 'Move selected text to Darlings']
+    { title: tk('Writing'), rows: [
+      [tk('Enter ×2'), tk('Insert a section break')],
+      [tk('Enter ×3'), tk('Start a new chapter')],
+      [K('⇧Enter', 'Shift+Enter'), tk('Start or continue a poetry paragraph'), tk('Also works from a chapter heading.')],
+      [KPH, tk('Insert a placeholder note')],
+      [KDA, tk('Move selected text to Darlings')]
     ] },
-    { title: 'Formatting', rows: [
-      [K('⌘B', 'Ctrl+B'), 'Bold'],
-      [K('⌘I', 'Ctrl+I'), 'Italic'],
-      [K('⌘⇧L', 'Ctrl+Shift+L'), 'Align paragraph left'],
-      [K('⌘⇧C', 'Ctrl+Shift+C'), 'Center paragraph'],
-      [K('⌘⇧R', 'Ctrl+Shift+R'), 'Align paragraph right'],
-      [K('⌘⇧J', 'Ctrl+Shift+J'), 'Justify paragraph'],
-      [K('⌘+', 'Ctrl++'), 'Larger text'],
-      [K('⌘−', 'Ctrl+−'), 'Smaller text'],
-      [K('⌘0', 'Ctrl+0'), 'Reset text size and page zoom'],
-      [K('⌃Scroll', 'Ctrl+Scroll'), 'Zoom the page']
+    { title: tk('Formatting'), rows: [
+      [K('⌘B', 'Ctrl+B'), tk('Bold')],
+      [K('⌘I', 'Ctrl+I'), tk('Italic')],
+      [K('⌘⇧L', 'Ctrl+Shift+L'), tk('Align paragraph left')],
+      [K('⌘⇧C', 'Ctrl+Shift+C'), tk('Center paragraph')],
+      [K('⌘⇧R', 'Ctrl+Shift+R'), tk('Align paragraph right')],
+      [K('⌘⇧J', 'Ctrl+Shift+J'), tk('Justify paragraph')],
+      [K('⌘+', 'Ctrl++'), tk('Larger text')],
+      [K('⌘−', 'Ctrl+−'), tk('Smaller text')],
+      [K('⌘0', 'Ctrl+0'), tk('Reset text size and page zoom')],
+      [K(tk('⌃Scroll'), tk('Ctrl+Scroll')), tk('Zoom the page')]
     ] },
-    { title: 'Outline', rows: [
-      ['Tab', 'Turn a chapter into a section', 'Only empty chapters after the first chapter.'],
-      [K('⇧Tab', 'Shift+Tab'), 'Turn a section into a chapter']
+    { title: tk('Outline'), rows: [
+      ['Tab', tk('Turn a chapter into a section'), tk('Only empty chapters after the first chapter.')],
+      [K('⇧Tab', 'Shift+Tab'), tk('Turn a section into a chapter')]
     ] },
-    { title: 'Editing', rows: [
-      [KZ, 'Undo', 'Also undoes recent chapter changes, Darlings moves and Replace All.'],
-      [K('⌘⇧Z', /win/i.test(navigator.platform) ? 'Ctrl+Y' : 'Ctrl+Shift+Z'), 'Redo'],
-      [K('⌘X', 'Ctrl+X'), 'Cut'],
-      [K('⌘C', 'Ctrl+C'), 'Copy'],
-      [K('⌘V', 'Ctrl+V'), 'Paste'],
-      [K('⌘⌥⇧V', 'Ctrl+Shift+V'), 'Paste and match style'],
-      [K('⌘A', 'Ctrl+A'), 'Select all'],
-      [K('⌘F', 'Ctrl+F'), 'Find and replace'],
-      [K('⌘;', 'Ctrl+;'), 'Toggle spellcheck pass']
+    { title: tk('Editing'), rows: [
+      [KZ, tk('Undo'), tk('Also undoes recent chapter changes, Darlings moves and Replace All.')],
+      [K('⌘⇧Z', /win/i.test(navigator.platform) ? 'Ctrl+Y' : 'Ctrl+Shift+Z'), tk('Redo')],
+      [K('⌘X', 'Ctrl+X'), tk('Cut')],
+      [K('⌘C', 'Ctrl+C'), tk('Copy')],
+      [K('⌘V', 'Ctrl+V'), tk('Paste')],
+      [K('⌘⌥⇧V', 'Ctrl+Shift+V'), tk('Paste and match style')],
+      [K('⌘A', 'Ctrl+A'), tk('Select all')],
+      [K('⌘F', 'Ctrl+F'), tk('Find and replace')],
+      [K('⌘;', 'Ctrl+;'), tk('Toggle spellcheck pass')]
     ] },
-    { title: 'App & files', rows: [
-      [KHELP, 'Keyboard shortcuts'],
-      [K('⌘,', 'Ctrl+,'), 'Goals and writing sprints'],
-      [K('⌘⇧I', 'Ctrl+Shift+I'), 'Import manuscripts'],
-      [K('⌘E', 'Ctrl+E'), 'Email a draft to yourself']
+    { title: tk('App & files'), rows: [
+      [KHELP, tk('Keyboard shortcuts')],
+      [K('⌘,', 'Ctrl+,'), tk('Goals and writing sprints')],
+      [K('⌘⇧I', 'Ctrl+Shift+I'), tk('Import manuscripts')],
+      [K('⌘E', 'Ctrl+E'), tk('Email a draft to yourself')]
     ] },
-    { title: 'View & window', rows: [
-      [[K('⌘⇧F', 'Ctrl+Shift+F'), K('⌘Enter', 'Ctrl+Enter')], 'Toggle full screen'],
-      [K('⌘⇧T', 'Ctrl+Shift+T'), 'Toggle typewriter scrolling'],
-      [K('⌘⇧O', 'Ctrl+Shift+O'), 'Cycle focus mode', 'Off → paragraph → sentence → off.'],
-      [K('⌘M', 'Ctrl+M'), 'Minimize window'],
-      [K('⌘W', 'Ctrl+W'), 'Close window'],
+    { title: tk('View & window'), rows: [
+      [[K('⌘⇧F', 'Ctrl+Shift+F'), K('⌘Enter', 'Ctrl+Enter')], tk('Toggle full screen')],
+      [K('⌘⇧T', 'Ctrl+Shift+T'), tk('Toggle typewriter scrolling')],
+      [K('⌘⇧O', 'Ctrl+Shift+O'), tk('Cycle focus mode'), tk('Off → paragraph → sentence → off.')],
+      [K('⌘M', 'Ctrl+M'), tk('Minimize window')],
+      [K('⌘W', 'Ctrl+W'), tk('Close window')],
       ...(IS_MAC ? [
-        ['⌘H', 'Hide NEO'],
-        ['⌘⌥H', 'Hide other apps']
+        ['⌘H', tk('Hide NEO')],
+        ['⌘⌥H', tk('Hide other apps')]
       ] : []),
-      ...(!/win/i.test(navigator.platform) ? [[K('⌘Q', 'Ctrl+Q'), 'Quit NEO']] : [])
+      ...(!/win/i.test(navigator.platform) ? [[K('⌘Q', 'Ctrl+Q'), tk('Quit NEO')]] : [])
     ] }
   ];
 }
@@ -4919,18 +4919,18 @@ function showHelp() {
       </header>
       <div class="shortcuts-content" tabindex="0" role="region" aria-label="${t('Shortcut reference')}"></div>
       <footer class="shortcuts-footer">
-        <span>${K('⌘ Command · ⇧ Shift · ⌥ Option · ⌃ Control', 'Ctrl Control · Shift · Alt')}</span>
+        <span>${t(K(tk('⌘ Command · ⇧ Shift · ⌥ Option · ⌃ Control'), tk('Ctrl Control · Shift · Alt')))}</span>
         <button class="m-ok btn-gold">${t('Done')}</button>
       </footer>
     </div>`;
-  const keyName = (key) => key.replaceAll('⌘', 'Command ').replaceAll('⇧', 'Shift ')
-    .replaceAll('⌥', 'Option ').replaceAll('⌃', 'Control ').replaceAll('−', '-');
+  const keyName = (key) => key.replaceAll('⌘', t('Command') + ' ').replaceAll('⇧', t('Shift') + ' ')
+    .replaceAll('⌥', t('Option') + ' ').replaceAll('⌃', t('Control') + ' ').replaceAll('−', '-');
   const content = bd.querySelector('.shortcuts-content');
   const sections = shortcutSections().map((section, index) => `
     <section class="shortcuts-section" style="order:${index}"><h3>${escHtml(t(section.title))}</h3><dl>${section.rows.map(([keys, label, detail]) => `
       <div class="shortcut-row">
         <dt>${escHtml(t(label))}${detail ? `<small>${escHtml(t(detail))}</small>` : ''}</dt>
-        <dd>${[keys].flat().map((key) => `<kbd aria-label="${escHtml(keyName(key))}">${escHtml(key)}</kbd>`).join(`<span class="shortcut-or">${t('or')}</span>`)}</dd>
+        <dd>${[keys].flat().map((key) => t(key)).map((key) => `<kbd aria-label="${escHtml(keyName(key))}">${escHtml(key)}</kbd>`).join(`<span class="shortcut-or">${t('or')}</span>`)}</dd>
       </div>`).join('')}</dl></section>`);
   // Keep Writing and Formatting first, with similar amounts of content per column.
   content.innerHTML = [[0, 2, 4, 5], [1, 3]].map((column) => `<div class="shortcuts-column">${
