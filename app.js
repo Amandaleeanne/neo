@@ -65,6 +65,19 @@ let currentChapterId = null; // chapter the caret/scroll is in
 let wordMode = 'book';       // 'book' | 'chapter'
 let saveTimers = {};
 
+// Every library.json write from this window goes through here. A look at the
+// disk (refreshFromDisk) can then tell its own writes from another device's:
+// a read that a write here crossed, or that finished while one was still on
+// its way, is older than the library in memory and must not replace it.
+let libraryGeneration = 0;
+let libraryWritesPending = 0;
+function writeLibrary(lib = library) {
+  libraryGeneration++;
+  libraryWritesPending++;
+  return new Promise((resolve) => resolve(window.neo.writeLibrary(lib)))
+    .finally(() => { libraryWritesPending--; });
+}
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -354,7 +367,7 @@ function showFirstRun() {
     // the shelf was drawn (and the author record seeded as Anonymous) before
     // the name was typed — carry the name across
     currentAuthor().name = library.authorName || (library.penNames || [])[0] || t('Anonymous');
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
     fr.hidden = true;
     renderShelves();
@@ -451,7 +464,7 @@ async function renderShelves() {
       if (!moving) return;
       library.shelves = library.shelves.filter((s) => s.id !== shelfId);
       library.shelves.splice(index, 0, moving);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       // move the shelf on screen rather than redrawing everything
       const secs = [...wrap.querySelectorAll('.shelf')];
       const movingSec = secs.find((el) => el.dataset.shelfId === shelfId);
@@ -507,7 +520,7 @@ async function renderShelves() {
       shelf.name = label.textContent.trim() || shelf.name;
       label.textContent = shelf.name;
       if (NO_HOVER) label.contentEditable = 'false';
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
     });
     label.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); label.blur(); }
@@ -538,7 +551,7 @@ async function renderShelves() {
           if (!other.bookIds.includes(id)) other.bookIds.push(id);
         }
         library.shelves = library.shelves.filter((s) => s.id !== shelf.id);
-        await window.neo.writeLibrary(library);
+        await writeLibrary(library);
         renderShelves();
       }
     });
@@ -607,7 +620,7 @@ async function renderShelves() {
       if (ind) ind.remove();
       for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== bookId);
       shelf.bookIds.splice(index, 0, bookId);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       // slide the tile into place; the shelf itself is not redrawn
       const tile = document.querySelector(`.book[data-book-id="${bookId}"]`);
       if (tile) {
@@ -839,14 +852,14 @@ function bookTile(meta) {
       renderShelves();
     } else if (choice === 'remove') {
       for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== meta.id);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       renderShelves();
       toast(t('“{title}” removed from the shelves — its files are still in your NEO Library', { title: meta.title }));
     } else if (choice === 'trash') {
       const ok = await window.neo.deleteBook(meta.id, meta.title);
       if (ok) {
         for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== meta.id);
-        await window.neo.writeLibrary(library);
+        await writeLibrary(library);
         renderShelves();
       }
     }
@@ -881,7 +894,7 @@ async function requestPaint(meta, text) {
   if (!(await window.neo.hasSecret(provider))) {
     if (!library.coverArtNudged) {
       library.coverArtNudged = true;
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       toast(t('This story just passed {n} words — add an API key under File → Cover Art… and NEO will paint it a cover.', { n: PAINT_AT }), 8000);
     }
     return;
@@ -980,7 +993,7 @@ async function createBookOnShelf(shelf) {
   };
   await writeBookMeta(meta.id, meta);
   shelf.bookIds.push(meta.id);
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   openBook(meta.id);
 }
 
@@ -1015,7 +1028,7 @@ $('#add-shelf-btn').onclick = async () => {
     bookIds: [],
     authorId: currentAuthor().id
   });
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   await renderShelves();
   // the new shelf may be below the fold: bring it up, name ready to type over
   const shelves = $$('#shelves .shelf');
@@ -1027,8 +1040,7 @@ $('#add-shelf-btn').onclick = async () => {
       if (NO_HOVER) { label.click(); return; }
       label.focus();
       const r = document.createRange();
-      r.selectNodeContents(label);
-      r.collapse(false);
+      r.selectNodeContents(label); // selected: typing replaces "New Shelf"
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(r);
@@ -1120,7 +1132,7 @@ async function moveBookToAuthor(bookId, authorId) {
   shelf.bookIds.unshift(bookId); // the top shelf, first in line
   meta.author = target.name;
   await writeBookMeta(bookId, meta);
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   renderShelves();
   toast(t('“{title}” now sits on {name}’s top shelf — Esc puts it back', { title: meta.title, name: target.name }), 6000);
 }
@@ -1133,7 +1145,7 @@ async function undoShelfMove() {
   home.bookIds.splice(Math.min(m.index, home.bookIds.length), 0, m.bookId);
   const meta = await window.neo.readBookMeta(m.bookId);
   if (meta) { meta.author = m.author; await writeBookMeta(m.bookId, meta); }
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   renderShelves();
   toast(t('“{title}” is back where it was', { title: m.title }));
   return true;
@@ -1160,7 +1172,7 @@ async function reshelveBook() {
   if (!pick) return;
   const shelf = shelvesFor(currentAuthor().id)[0] || library.shelves[0];
   shelf.bookIds.push(pick);
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   renderShelves();
   toast(t('“{title}” is back on the shelf', { title: loose.find((b) => b.id === pick).title }));
 }
@@ -1212,7 +1224,7 @@ $('#author-chip').onclick = async () => {
     library.currentAuthorId = target.id;
     library.authorName = library.authors[0].name;
   }
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   renderShelves();
 };
 
@@ -1276,7 +1288,7 @@ async function openBook(bookId) {
   // the Enter hint shows once per library, ever
   if (!library.hintShown) {
     library.hintShown = true;
-    window.neo.writeLibrary(library);
+    writeLibrary(library);
     setTimeout(() => toast(t('Enter twice = section break · three times = new chapter · {key} shows everything else', { key: KHELP }), 7000), 800);
   }
 }
@@ -2937,7 +2949,7 @@ $$('.tab').forEach((tab) => {
     // Renamed tabs become the default for future books
     library.tabDefaults = library.tabDefaults || {};
     library.tabDefaults[kind] = name;
-    window.neo.writeLibrary(library);
+    writeLibrary(library);
   });
 });
 
@@ -3822,7 +3834,12 @@ async function refreshFromDisk() {
   try {
     if (!book) {
       if (library && !$('#bookshelf-view').hidden) {
+        const gen = libraryGeneration;
         const lib = await window.neo.readLibrary();
+        // a change made here while that read was out (a new shelf, a rename)
+        // is newer than what came back: taking it would undo the change,
+        // and the next save would make that stick. Look again next time.
+        if (gen !== libraryGeneration || libraryWritesPending) return;
         if (lib && lib.firstRunDone && JSON.stringify(lib) !== JSON.stringify(library)) {
           library = lib;
           const shelf = $('#bookshelf-view');
@@ -4434,7 +4451,7 @@ async function addImportedBooks(results, shelf) {
     shelf.bookIds.push(meta.id);
     ok++;
   }
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   if (!$('#bookshelf-view').hidden) renderShelves();
   if (ok) toast(t('{n} books imported onto “{shelf}” — chapters and scene breaks detected', { n: ok, shelf: shelf.name }), 6000);
 }
@@ -4560,7 +4577,7 @@ async function changeSpellLanguage(code) {
   const ok = await window.neo.setSpellLanguage(code);
   if (!ok) { toast(t('That dictionary would not load')); return; }
   library.spellLanguage = code;
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   spellCache.clear();
   if (spellOn) {
     spellScanned = new Set();
@@ -4605,7 +4622,7 @@ document.addEventListener('contextmenu', async (e) => {
     learn: async () => {
       library.customWords = library.customWords || [];
       if (!library.customWords.includes(word)) library.customWords.push(word);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       await window.neo.spellLearn(word);
       // Learning also accepts equivalent Unicode spellings. Recheck cached
       // failures so those variants lose their underlines in every editor.
@@ -4680,7 +4697,7 @@ window.addEventListener('resize', typewriterRoom);
 function toggleTypewriter() {
   typewriterEnabled = !typewriterEnabled;
   library.typewriter = typewriterEnabled;
-  window.neo.writeLibrary(library);
+  writeLibrary(library);
   applyTypewriter();
   toast(typewriterEnabled ? t('Typewriter scrolling ON — your line stays centered') : t('Typewriter scrolling off'));
 }
@@ -4746,7 +4763,7 @@ function setFocus(level) {
   if (!FOCUS_LEVELS.includes(level)) return;
   focusLevel = level;
   library.focus = level;
-  window.neo.writeLibrary(library);
+  writeLibrary(library);
   applyFocus();
   toast(t(FOCUS_LABELS[level] || ''));
 }
@@ -4992,7 +5009,7 @@ function openCoverArt() {
       quality: bd.querySelector('#ca-quality').value,
       models
     };
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     done();
     if (!(await window.neo.hasSecret(id))) toast(t('Saved. Add a {name} key to start painting.', { name: p.name }), 5000);
   };
@@ -5059,7 +5076,7 @@ function openStats() {
       book.wordGoal = parseInt(bd.querySelector('#st-book').value, 10) || 0;
       scheduleMetaSave();
     }
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     bd.remove();
     if (hasBook) updateCounters();
   };
@@ -5223,7 +5240,7 @@ function setPageZoom(next) {
   document.documentElement.style.setProperty('--page-zoom', next);
   updateZoomDisplay();
   clearTimeout(zoomSaveTimer);
-  zoomSaveTimer = setTimeout(() => { window.neo.writeLibrary(library); }, 600);
+  zoomSaveTimer = setTimeout(() => { writeLibrary(library); }, 600);
 }
 $('#editor-view').addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
@@ -5979,7 +5996,7 @@ async function emailSettings() {
   if (addr === null) return false;
   if (addr) library.emailAddress = addr;
   library.emailMethod = await chooseEmailMethod();
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   toast(t('Email settings saved'));
   return true;
 }
@@ -6156,7 +6173,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'export') doExport(msg.format);
   if (msg.type === 'exportCustomChapterTitles') {
     library.exportCustomChapterTitles = msg.checked;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
   }
   if (msg.type === 'emailDraft') doEmailDraft();
   if (msg.type === 'emailSettings') emailSettings();
@@ -6171,7 +6188,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'stats') openStats();
   if (msg.type === 'writingStyle') {
     library.writingStyle = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
   }
   if (msg.type === 'coverArt') openCoverArt();
@@ -6187,24 +6204,24 @@ window.neo.onMenu(async (msg) => {
   }
   if (msg.type === 'uiZoom') {
     library.uiZoom = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'uiBright') {
     library.uiBright = !document.body.classList.contains('bright');
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'pageTheme') {
     library.pageTheme = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'fontSize') {
     const cur = library.editorFontSize || 17;
     library.editorFontSize = msg.value === 0 ? 17 : Math.min(22, Math.max(14, cur + msg.value));
     if (msg.value === 0) library.pageZoom = 1; // ⌘0 resets pinch zoom too
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'bodyFontPick') {
@@ -6212,20 +6229,20 @@ window.neo.onMenu(async (msg) => {
     if (name) {
       library.fonts = library.fonts || {};
       library.fonts.body = name;
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
     }
     applyFonts(); // also undoes a hover preview after Cancel
   }
   if (msg.type === 'bodyFont') {
     library.fonts = library.fonts || {};
     library.fonts.body = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'dropCap') {
     library.fonts = library.fonts || {};
     library.fonts.dropcap = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
 });
