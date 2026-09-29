@@ -359,10 +359,13 @@ async function shelfMeta(bookId) {
   if (meta) bookMetaCache.set(bookId, meta);
   return meta;
 }
-(() => {
-  const write = window.neo.writeBookMeta;
-  window.neo.writeBookMeta = (bookId, meta) => { bookMetaCache.delete(bookId); return write(bookId, meta); };
-})();
+// Saves a book's meta and drops the cached copy. This used to be done by
+// replacing window.neo.writeBookMeta, but on desktop that object is
+// read-only, so the assignment threw and app.js stopped loading.
+function writeBookMeta(bookId, meta) {
+  bookMetaCache.delete(bookId);
+  return window.neo.writeBookMeta(bookId, meta);
+}
 
 async function renderShelves() {
   await NeoCovers.ready; // display faces, so titles measure true
@@ -726,7 +729,7 @@ function bookTile(meta) {
       if (fname) {
         meta.coverImage = fname;
         meta.coverMode = 'image';
-        await window.neo.writeBookMeta(meta.id, meta);
+        await writeBookMeta(meta.id, meta);
         renderShelves();
       }
     } else if (/\.(docx|txt|md)$/i.test(p)) {
@@ -777,20 +780,20 @@ function bookTile(meta) {
       if (fname) {
         meta.coverImage = fname;
         meta.coverMode = 'image';
-        await window.neo.writeBookMeta(meta.id, meta);
+        await writeBookMeta(meta.id, meta);
         renderShelves();
       }
     } else if (choice === 'uncover') {
       await window.neo.removeCover(meta.id);
       meta.coverImage = null;
-      await window.neo.writeBookMeta(meta.id, meta);
+      await writeBookMeta(meta.id, meta);
       renderShelves();
     } else if (choice === 'goal') {
       const goal = await askInput(t('Word count goal for “{title}”', { title: meta.title }), t('e.g. 80000 — blank removes the goal'),
         meta.wordGoal ? String(meta.wordGoal) : '');
       if (goal === null) return;
       meta.wordGoal = parseInt(goal, 10) || 0;
-      await window.neo.writeBookMeta(meta.id, meta);
+      await writeBookMeta(meta.id, meta);
       renderShelves();
     } else if (choice === 'remove') {
       for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== meta.id);
@@ -843,7 +846,7 @@ async function requestPaint(meta, text) {
   }
   meta.coverArt = { status: 'pending', at: new Date().toISOString(), words: meta.wordCount || 0 };
   if (book && book.id === meta.id) scheduleMetaSave();
-  else await window.neo.writeBookMeta(meta.id, meta);
+  else await writeBookMeta(meta.id, meta);
   markPainting(meta.id, true);
   if (text == null) {
     const m = await window.neo.readBookMeta(meta.id);
@@ -876,7 +879,7 @@ async function requestPaint(meta, text) {
     toast(t('NEO couldn’t paint that cover: {error}', { error: live.coverArt.error }), 7000);
   }
   if (live === book) scheduleMetaSave();
-  else await window.neo.writeBookMeta(meta.id, live);
+  else await writeBookMeta(meta.id, live);
   markPainting(meta.id, false);
   if (!$('#bookshelf-view').hidden) renderShelves();
 }
@@ -923,7 +926,7 @@ async function refreshCover(meta, el) {
   } else {
     live.coverMode = choice;
   }
-  if (live === book) scheduleMetaSave(); else await window.neo.writeBookMeta(meta.id, live);
+  if (live === book) scheduleMetaSave(); else await writeBookMeta(meta.id, live);
   dressTile(el, live);
 }
 
@@ -933,7 +936,7 @@ async function createBookOnShelf(shelf) {
     notes: (library.tabDefaults && library.tabDefaults.notes) || 'Notes',
     outline: (library.tabDefaults && library.tabDefaults.outline) || 'Outline'
   };
-  await window.neo.writeBookMeta(meta.id, meta);
+  await writeBookMeta(meta.id, meta);
   shelf.bookIds.push(meta.id);
   await window.neo.writeLibrary(library);
   openBook(meta.id);
@@ -1074,7 +1077,7 @@ async function moveBookToAuthor(bookId, authorId) {
   for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== bookId);
   shelf.bookIds.unshift(bookId); // the top shelf, first in line
   meta.author = target.name;
-  await window.neo.writeBookMeta(bookId, meta);
+  await writeBookMeta(bookId, meta);
   await window.neo.writeLibrary(library);
   renderShelves();
   toast(t('“{title}” now sits on {name}’s top shelf — Esc puts it back', { title: meta.title, name: target.name }), 6000);
@@ -1087,7 +1090,7 @@ async function undoShelfMove() {
   for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== m.bookId);
   home.bookIds.splice(Math.min(m.index, home.bookIds.length), 0, m.bookId);
   const meta = await window.neo.readBookMeta(m.bookId);
-  if (meta) { meta.author = m.author; await window.neo.writeBookMeta(m.bookId, meta); }
+  if (meta) { meta.author = m.author; await writeBookMeta(m.bookId, meta); }
   await window.neo.writeLibrary(library);
   renderShelves();
   toast(t('“{title}” is back where it was', { title: m.title }));
@@ -3638,7 +3641,7 @@ function scheduleMetaSave() {
 async function saveMeta() {
   if (!book) return;
   const sig = metaSig(book);
-  const stamp = await window.neo.writeBookMeta(book.id, book);
+  const stamp = await writeBookMeta(book.id, book);
   if (book && typeof stamp === 'string') book.modified = stamp;
   savedMetaSig = sig;
 }
@@ -4194,7 +4197,7 @@ async function addImportedBooks(results, shelf) {
       for (const p of ch.paras) words += countWords(p.text || '');
     }
     meta.wordCount = words;
-    await window.neo.writeBookMeta(meta.id, meta);
+    await writeBookMeta(meta.id, meta);
     shelf.bookIds.push(meta.id);
     ok++;
   }
