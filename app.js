@@ -4978,7 +4978,7 @@ function applyFonts() {
   reportViewState();
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
-  const zoom = Math.min(1.6, Math.max(0.75, library.pageZoom || 1));
+  const zoom = Math.min(3, Math.max(0.75, library.pageZoom || 1));
   document.documentElement.style.setProperty('--page-zoom', zoom);
   updateZoomDisplay();
 }
@@ -5058,7 +5058,9 @@ function updateZoomDisplay() {
   if (el) el.textContent = Math.round((library.pageZoom || 1) * 100) + '%';
 }
 function setPageZoom(next) {
-  next = Math.min(1.6, Math.max(0.75, next));
+  // up to 300%: on a large monitor 160% still read small. The page itself
+  // never grows past the window (max-width in styles.css), only the type does.
+  next = Math.min(3, Math.max(0.75, next));
   if (next === (library.pageZoom || 1)) return;
   library.pageZoom = next;
   document.documentElement.style.setProperty('--page-zoom', next);
