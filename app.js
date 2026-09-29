@@ -5894,6 +5894,8 @@ function applyFonts() {
   }
   document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
+  // Light: the paper page in a light room, the whole app with it
+  document.body.classList.toggle('light', library.pageTheme === 'light');
   // the system's "Increase contrast" turns it on too, until the writer
   // chooses in the View menu
   document.body.classList.toggle('bright', library.uiBright === undefined ? SYSTEM_CONTRAST.matches : !!library.uiBright);
