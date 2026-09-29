@@ -755,6 +755,8 @@ body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
   color: #eee; font-size: 13px; padding: 6px 10px; width: 170px;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }
+/* outside the manuscript Find only finds */
+#searchbar.find-only #replace-input, #searchbar.find-only #replace-one, #searchbar.find-only #replace-all { display: none; }
 #searchbar button {
   background: none; border: 1px solid #3a3a3a; border-radius: 5px;
   color: #aaa; font-size: 12px; padding: 5px 9px;

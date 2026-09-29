@@ -3066,11 +3066,14 @@ function switchTab(name) {
   // stash whatever aux content was open
   flushAux();
 
+  // an open Find follows the tab (Notes arrives from disk, so it looks later)
+  const findHere = () => { if (!$('#searchbar').hidden) runSearch(); };
   if (name === 'manuscript') {
     paper.hidden = false;
     aux.hidden = true;
     if (back && back.caret) restoreCaret(back.caret); // brings the scroll along
     else returnTo();
+    findHere();
     return;
   }
   paper.hidden = true;
@@ -3084,12 +3087,14 @@ function switchTab(name) {
     dList.hidden = false;
     renderDarlings();
     returnTo();
+    findHere();
   } else if (name === 'outline') {
     $('#aux-title').textContent = tabName('outline');
     oList.hidden = false;
     if (book.chapterOrder.length === 0) createChapterAt(0);
     renderOutline();
     returnTo();
+    findHere();
   } else {
     $('#aux-title').textContent = tabName(name);
     auxEditor.hidden = false;
@@ -3098,6 +3103,7 @@ function switchTab(name) {
       auxEditor.innerHTML = html || '';
       auxEditor.focus({ preventScroll: true });
       returnTo();
+      findHere();
     });
   }
 }
@@ -4099,7 +4105,6 @@ let searchState = { matches: [], idx: -1, query: '' };
 
 function openSearch() {
   if ($('#editor-view').hidden || !book) { toast(t('Open a book first')); return; }
-  switchTab('manuscript');
   const sel = window.getSelection();
   const preset = sel && !sel.isCollapsed ? sel.toString().slice(0, 80).trim() : '';
   $('#searchbar').hidden = false;
@@ -4130,19 +4135,28 @@ function paintHighlights() {
   CSS.highlights.set('neo-search-current', cur);
 }
 
-// Scan the WHOLE book, first chapter to last, every time.
-// Matches are highlighted, not selected.
+// Find searches the tab you're in: the whole manuscript, first chapter to
+// last, or the Notes page, the outline's lines, the Darlings. Replace stays
+// with the manuscript, where ⌘Z can take a Replace All back.
+function searchRoots() {
+  if (currentTab === 'manuscript') return book.chapterOrder.map((chId) => document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`));
+  if (currentTab === 'outline') return $$('#outline-list .ol-text');
+  if (currentTab === 'darlings') return $$('#darlings-list .darling > :first-child');
+  return [$('#aux-editor')];
+}
+
+// Scan the whole tab every time. Matches are highlighted, not selected.
 function runSearch() {
   const q = $('#search-input').value;
-  searchState = { matches: [], idx: -1, query: q };
+  searchState = { matches: [], idx: -1, query: q, tab: currentTab };
+  $('#searchbar').classList.toggle('find-only', currentTab !== 'manuscript');
   if (!q) {
     $('#search-count').textContent = '';
     paintHighlights();
     return;
   }
   const ql = q.toLowerCase();
-  for (const chId of book.chapterOrder) {
-    const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  for (const body of searchRoots()) {
     if (!body) continue;
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
     let node;
@@ -4177,10 +4191,11 @@ function gotoMatch(i) {
 }
 
 function freshSearchIfStale() {
-  if (searchState.query !== $('#search-input').value) runSearch();
+  if (searchState.query !== $('#search-input').value || searchState.tab !== currentTab) runSearch();
 }
 
 function replaceCurrent() {
+  if (currentTab !== 'manuscript') return;
   freshSearchIfStale();
   if (!searchState.matches.length) { toast(t('No matches')); return; }
   if (searchState.idx < 0) searchState.idx = 0; // start from the very first match
@@ -4204,7 +4219,7 @@ function replaceCurrent() {
 // Every chapter, front to back
 function replaceAllMatches() {
   const q = $('#search-input').value;
-  if (!q) return;
+  if (!q || currentTab !== 'manuscript') return;
   snapshotStructure('replace all');
   const rep = $('#replace-input').value;
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -4246,7 +4261,7 @@ $('#search-input').addEventListener('keydown', (e) => {
       r.collapse(false);
       sel.removeAllRanges();
       sel.addRange(r);
-      const body = m.range.startContainer.parentElement.closest('.chapter-body');
+      const body = m.range.startContainer.parentElement.closest('[contenteditable="true"]');
       if (body) body.focus();
     }
   }
