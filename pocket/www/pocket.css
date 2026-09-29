@@ -98,3 +98,8 @@ body.light .pm-label { color: #6a665e; }
 body.light .pm-seg button, body.light .pm-actions button { background: #fff; border-color: #d6d1c7; color: #2b2926; }
 body.light .pm-seg button.on { background: #f3ead6; border-color: #b89a5c; color: #5c4418; }
 body.light .book { box-shadow: 2px 3px 6px rgba(0,0,0,0.2); }
+
+/* the + between the Chapters pane's boxes: no pointer to wake it, so it
+   stays faintly there, and small (not a 40px tap target) */
+.nav-gap .ng-plus { opacity: 0.45; pointer-events: auto; min-height: 0; width: 26px; height: 26px; margin: -13px 0 0 -13px; line-height: 23px; }
+.nav-gap::before { display: none; }

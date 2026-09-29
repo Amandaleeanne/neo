@@ -18,10 +18,6 @@
     "one": "{n} word · exported from NEO on {date}",
     "other": "{n} words · exported from NEO on {date}"
   },
-  "{n} words.": {
-    "one": "{n} word.",
-    "other": "{n} words."
-  },
   "{name}: {n} words": {
     "one": "{name}: {n} word",
     "other": "{name}: {n} words"

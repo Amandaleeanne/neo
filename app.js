@@ -48,39 +48,97 @@ const tabName = (kind) => {
   return n === 'Notes' || n === 'Outline' ? t(n) : n;
 };
 
-// Prologue and epilogue: the first and last chapters can stand outside the
-// numbering. The book remembers which chapter holds each role, and a role
-// only counts while that chapter is still first (prologue) or last
-// (epilogue) in a book of two chapters or more.
-function chapterRole(chId, meta = book) {
+// What each entry in the Chapters pane is. Every entry is a chapter unless
+// the writer makes it something else (right-click its box, or add one with
+// the faint + between boxes): a page a published book carries, a part, a
+// prologue or an epilogue. book.chapterKinds holds the ones that aren't
+// chapters. Chapters are numbered; parts are numbered on their own; the rest
+// go by their names. Prologues, epilogues and chapters are the story: they
+// count toward the words.
+const CHAPTER_KINDS = ['copyright', 'dedication', 'epigraph', 'contents', 'prologue', 'part', 'chapter', 'epilogue', 'acknowledgments', 'about'];
+const STORY_KINDS = ['chapter', 'prologue', 'epilogue'];
+// what comes after the story, where a new chapter never goes
+const BACK_KINDS = ['epilogue', 'acknowledgments', 'about'];
+function chapterKind(chId, meta = book) {
+  const k = meta && meta.chapterKinds && meta.chapterKinds[chId];
+  if (k && CHAPTER_KINDS.includes(k)) return k;
+  // NEO 1.0 kept a prologue and an epilogue as roles of the first and last
+  // chapters (a book not opened since reads that way until it is)
   const order = (meta && meta.chapterOrder) || [];
-  if (order.length < 2) return null;
-  if (meta.prologue === chId && order[0] === chId) return 'prologue';
-  if (meta.epilogue === chId && order[order.length - 1] === chId) return 'epilogue';
-  return null;
+  if (order.length >= 2) {
+    if (meta.prologue === chId && order[0] === chId) return 'prologue';
+    if (meta.epilogue === chId && order[order.length - 1] === chId) return 'epilogue';
+  }
+  return 'chapter';
 }
-// the chapter's number, counted after the prologue
-function chapterNumber(chId, meta = book) {
-  const order = meta.chapterOrder;
-  return order.indexOf(chId) + 1 - (chapterRole(order[0], meta) === 'prologue' ? 1 : 0);
+const isStory = (chId, meta = book) => STORY_KINDS.includes(chapterKind(chId, meta));
+// a prologue or an epilogue: story that stands outside the numbering
+function chapterRole(chId, meta = book) {
+  const k = chapterKind(chId, meta);
+  return k === 'prologue' || k === 'epilogue' ? k : null;
 }
+// a chapter's number counts chapters only; a part's, parts only
+function kindCount(chId, kind, meta = book) {
+  let n = 0;
+  for (const c of meta.chapterOrder) {
+    if (chapterKind(c, meta) === kind) n++;
+    if (c === chId) break;
+  }
+  return n;
+}
+const chapterNumber = (chId, meta = book) => kindCount(chId, 'chapter', meta);
 function chapterName(chId, meta = book) {
-  const role = chapterRole(chId, meta);
-  if (role === 'prologue') return t('Prologue');
-  if (role === 'epilogue') return t('Epilogue');
-  return t('Chapter {n}', { n: chapterNumber(chId, meta) });
+  const k = chapterKind(chId, meta);
+  if (k === 'chapter') return t('Chapter {n}', { n: chapterNumber(chId, meta) });
+  if (k === 'part') return partLabel(kindCount(chId, 'part', meta));
+  return kindName(k);
 }
-// where there's only room for a number, a fleuron marks the other two
-const chapterMark = (chId, meta = book) => (chapterRole(chId, meta) ? '❦' : String(chapterNumber(chId, meta)));
+function kindName(kind) {
+  if (kind === 'chapter') return t('Chapter');
+  if (kind === 'contents') return t('Contents');
+  return pageKindName(kind);
+}
+// where there's only room for a number: a chapter's, a part's in roman
+// numerals, and a fleuron for the rest
+function chapterMark(chId, meta = book) {
+  const k = chapterKind(chId, meta);
+  if (k === 'chapter') return String(chapterNumber(chId, meta));
+  if (k === 'part') return roman(kindCount(chId, 'part', meta));
+  return '❦';
+}
 // how many numbered chapters the book has
-const numberedChapters = (meta = book) => meta.chapterOrder.filter((c) => !chapterRole(c, meta)).length;
-// a role whose chapter moved away or was deleted is let go
-function settleChapterRoles() {
+const numberedChapters = (meta = book) => meta.chapterOrder.filter((c) => chapterKind(c, meta) === 'chapter').length;
+// A story of one chapter is just "the story": no heading, no number, until a
+// second chapter (or a prologue, an epilogue or a part) joins it. The pages
+// around it don't count.
+function soloStory(meta = book) {
+  const story = meta.chapterOrder.filter((c) => isStory(c, meta) || chapterKind(c, meta) === 'part');
+  return story.length === 1 && chapterKind(story[0], meta) === 'chapter' ? story[0] : null;
+}
+// NEO 1.0's roles become kinds the first time a book opens here, and a kind
+// whose entry is gone is let go
+function settleChapterKinds() {
   let changed = false;
   for (const role of ['prologue', 'epilogue']) {
-    if (book[role] && chapterRole(book[role]) !== role) { delete book[role]; changed = true; }
+    if (!(role in book)) continue;
+    const id = book[role];
+    if (chapterKind(id) === role) (book.chapterKinds = book.chapterKinds || {})[id] = role;
+    delete book[role];
+    changed = true;
+  }
+  for (const id of Object.keys(book.chapterKinds || {})) {
+    const k = book.chapterKinds[id];
+    if (!book.chapterOrder.includes(id) || k === 'chapter' || !CHAPTER_KINDS.includes(k)) {
+      delete book.chapterKinds[id];
+      changed = true;
+    }
   }
   if (changed) scheduleMetaSave();
+}
+function setChapterKind(chId, kind) {
+  book.chapterKinds = book.chapterKinds || {};
+  if (kind === 'chapter') delete book.chapterKinds[chId];
+  else book.chapterKinds[chId] = kind;
 }
 
 const isUntitled = (s) => !s || s === 'Untitled' || s === t('Untitled');
@@ -238,6 +296,87 @@ function optionModal(title, message, options) {
     });
     bd.querySelector('.m-cancel').onclick = () => done(null);
     bd.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
+  });
+}
+
+// A small menu at the pointer, the way a right-click menu opens: items are
+// {label, value, checked, disabled, danger} or '-' for a line between them.
+// Resolves to the chosen value, or null. Arrow keys, Enter and Esc work.
+function popMenu(x, y, items, { title = '', from = null } = {}) {
+  if (popMenu.close) popMenu.close(); // one at a time
+  return new Promise((resolve) => {
+    const menu = document.createElement('div');
+    menu.className = 'pop-menu';
+    menu.setAttribute('role', 'menu');
+    if (title) {
+      const h = document.createElement('div');
+      h.className = 'pm-title';
+      h.textContent = title;
+      menu.setAttribute('aria-label', title);
+      menu.appendChild(h);
+    }
+    for (const it of items) {
+      if (it === '-') {
+        const sep = document.createElement('div');
+        sep.className = 'pm-sep';
+        menu.appendChild(sep);
+        continue;
+      }
+      const b = document.createElement('button');
+      b.setAttribute('role', it.checked !== undefined ? 'menuitemradio' : 'menuitem');
+      if (it.checked !== undefined) b.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+      b.className = (it.checked ? 'on' : '') + (it.danger ? ' danger' : '');
+      b.textContent = it.label;
+      b.disabled = !!it.disabled;
+      b.tabIndex = -1;
+      b.onclick = () => done(it.value);
+      b.onmouseenter = () => { if (!b.disabled) b.focus({ preventScroll: true }); };
+      menu.appendChild(b);
+    }
+    document.body.appendChild(menu);
+    // opened from the keyboard (no pointer), it hangs from the thing it's for
+    if ((!x && !y) && from) {
+      const r = from.getBoundingClientRect();
+      x = r.left + 12;
+      y = r.bottom;
+    }
+    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom')) || 1;
+    const w = menu.offsetWidth * zoom;
+    const h = menu.offsetHeight * zoom;
+    const left = Math.max(4, Math.min(x, window.innerWidth - w - 4));
+    const top = y + h > window.innerHeight - 4 ? Math.max(4, y - h) : y;
+    menu.style.left = left / zoom + 'px';
+    menu.style.top = top / zoom + 'px';
+    const back = document.activeElement;
+    const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+    const done = (value) => {
+      if (!menu.isConnected) return;
+      menu.remove();
+      popMenu.close = null;
+      document.removeEventListener('mousedown', outside, true);
+      window.removeEventListener('blur', cancel);
+      // the Chapters pane it kept open closes if the pointer has left it
+      const nav = $('#nav-pane');
+      if (nav && nav.dataset.pinned !== '1' && !nav.matches(':hover')) nav.classList.remove('open');
+      if (value === null && back && back.isConnected && back.focus) back.focus({ preventScroll: true });
+      resolve(value);
+    };
+    const cancel = () => done(null);
+    popMenu.close = cancel;
+    const outside = (e) => { if (!menu.contains(e.target)) done(null); };
+    document.addEventListener('mousedown', outside, true);
+    window.addEventListener('blur', cancel);
+    menu.addEventListener('keydown', (e) => {
+      const at = buttons.indexOf(document.activeElement);
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(null); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const next = buttons[(at + (e.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length];
+        if (next) next.focus();
+      } else if (e.key === 'Tab') e.preventDefault();
+      e.stopPropagation();
+    });
+    (buttons.find((b) => b.classList.contains('on')) || buttons[0] || menu).focus({ preventScroll: true });
   });
 }
 
@@ -2007,71 +2146,108 @@ async function openBook(bookId) {
   }
 }
 
+// the pages that show a faint word until they have their own
+const PAGE_PROMPTS = { dedication: () => t('For…'), epigraph: () => '…', part: () => t('Title') };
+
 function renderChapters() {
   const wrap = $('#chapters');
   wrap.innerHTML = '';
   wordCache = {};
   book.chapterTitles = book.chapterTitles || {};
-  settleChapterRoles();
+  settleChapterKinds();
   // a lone chapter is just "the story" — no heading until a second one exists,
   // at which point both appear, numbered in retrospect
-  const solo = book.chapterOrder.length === 1;
-  book.chapterOrder.forEach((chId, i) => {
+  const solo = soloStory();
+  book.chapterOrder.forEach((chId) => {
+    const kind = chapterKind(chId);
+    const story = STORY_KINDS.includes(kind);
     const sec = document.createElement('section');
-    sec.className = 'chapter sheet' + (solo ? ' solo' : '');
+    sec.className = `chapter sheet kind-${kind}` + (chId === solo ? ' solo' : '') + (story ? '' : ' bookpage');
     sec.dataset.id = chId;
+    const role = chapterRole(chId);
+    if (role) sec.classList.add(role);
     const head = document.createElement('div');
     head.className = 'chapter-head';
     head.id = 'ch-head-' + chId;
-    head.title = t('Right-click for chapter options · click after the number to add a title');
     const num = document.createElement('span');
     num.className = 'ch-num';
     num.textContent = chapterName(chId);
-    const role = chapterRole(chId);
-    if (role) sec.classList.add(role);
-    const sep = document.createElement('span');
-    sep.className = 'ch-sep';
-    sep.setAttribute('aria-hidden', 'true');
-    sep.textContent = '—';
-    const titleSpan = document.createElement('span');
-    titleSpan.className = 'ch-title';
-    titleSpan.contentEditable = 'true';
-    titleSpan.spellcheck = false;
-    titleSpan.textContent = book.chapterTitles[chId] || '';
-    if (titleSpan.textContent) head.classList.add('has-title');
-    titleSpan.addEventListener('input', () => {
-      head.classList.toggle('has-title', titleSpan.textContent.trim() !== '');
-    });
-    titleSpan.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.shiftKey) {
-        e.preventDefault();
-        titleSpan.blur();
-        poetryUnderHeading(sec.querySelector('.chapter-body'), chId);
-      } else if (e.key === 'Enter') { e.preventDefault(); titleSpan.blur(); }
-      e.stopPropagation();
-    });
-    titleSpan.addEventListener('blur', () => {
-      book.chapterTitles[chId] = titleSpan.textContent.trim();
-      scheduleMetaSave();
-      renderNav();
-    });
     head.appendChild(num);
-    head.appendChild(sep);
-    head.appendChild(titleSpan);
+    if (story) {
+      head.title = t('Right-click for chapter options · click after the number to add a title');
+      const sep = document.createElement('span');
+      sep.className = 'ch-sep';
+      sep.setAttribute('aria-hidden', 'true');
+      sep.textContent = '—';
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'ch-title';
+      titleSpan.contentEditable = 'true';
+      titleSpan.spellcheck = false;
+      titleSpan.textContent = book.chapterTitles[chId] || '';
+      if (titleSpan.textContent) head.classList.add('has-title');
+      titleSpan.addEventListener('input', () => {
+        head.classList.toggle('has-title', titleSpan.textContent.trim() !== '');
+      });
+      titleSpan.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.shiftKey) {
+          e.preventDefault();
+          titleSpan.blur();
+          poetryUnderHeading(sec.querySelector('.chapter-body'), chId);
+        } else if (e.key === 'Enter') { e.preventDefault(); titleSpan.blur(); }
+        e.stopPropagation();
+      });
+      titleSpan.addEventListener('blur', () => {
+        book.chapterTitles[chId] = titleSpan.textContent.trim();
+        scheduleMetaSave();
+        renderNav();
+      });
+      head.appendChild(sep);
+      head.appendChild(titleSpan);
+    }
     head.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      chapterMenu(chId);
+      chapterMenu(chId, e.clientX, e.clientY);
     });
     const body = document.createElement('div');
     body.className = 'chapter-body';
+    sec.appendChild(head);
+    sec.appendChild(body);
+    wrap.appendChild(sec);
+    if (kind === 'contents') {
+      // the contents are the book's own shape, kept up to date: nothing to type
+      body.hidden = true;
+      const list = document.createElement('ol');
+      list.className = 'toc-list';
+      sec.appendChild(list);
+      return;
+    }
     body.contentEditable = 'true';
     // screen readers name each chapter by its heading (a lone chapter by the book)
     body.setAttribute('role', 'textbox');
     body.setAttribute('aria-multiline', 'true');
-    if (solo) body.setAttribute('aria-label', book.title || t('The story'));
+    if (chId === solo) body.setAttribute('aria-label', book.title || t('The story'));
     else body.setAttribute('aria-labelledby', head.id);
     body.spellcheck = false; // NEO runs its own spellcheck pass
+    if (!story) body.classList.add('no-cap');
     body.innerHTML = chapterHTML[chId] || '<p><br></p>';
+    if (PAGE_PROMPTS[kind]) {
+      body.dataset.ph = PAGE_PROMPTS[kind]();
+      const blank = () => body.classList.toggle('blank', !body.textContent.trim());
+      blank();
+      body.addEventListener('input', blank);
+    }
+    // a line that opens with a dash is set as the name of whoever said the
+    // lines above it, as it will print
+    if (ATTRIBUTED_PAGES.includes(kind)) {
+      const settle = () => {
+        for (const p of body.querySelectorAll('p')) {
+          const attr = isAttribution({ text: p.textContent.trim() });
+          if (p.hasAttribute('data-attr') !== attr) p.toggleAttribute('data-attr', attr);
+        }
+      };
+      settle();
+      body.addEventListener('input', settle);
+    }
     // older marks used a "?" that read as a broken image — normalize to the flag
     body.querySelectorAll('.ph-mark').forEach((m) => { m.textContent = '⚑'; });
     // heal the engine's style-junk spans left by past merges and splits
@@ -2091,15 +2267,14 @@ function renderChapters() {
       if (tn.data.includes('\u00a0')) tn.data = tn.data.replace(/\u00a0/g, ' ');
     }
     wireChapterBody(body, chId);
-    sec.appendChild(head);
-    sec.appendChild(body);
-    wrap.appendChild(sec);
   });
   renderNav();
 }
 
 async function deleteChapterToDarlings(chId) {
   snapshotStructure('chapter delete');
+  const kind = chapterKind(chId);
+  const name = chapterName(chId);
   const index = book.chapterOrder.indexOf(chId);
   const text = chapterText(chId).trim();
   if (text) {
@@ -2109,53 +2284,62 @@ async function deleteChapterToDarlings(chId) {
       html: bodyEl ? bodyEl.innerHTML : chapterHTML[chId],
       text: text.slice(0, 2000),
       chapterId: null,
-      chapterLabel: chapterRole(chId) ? chapterName(chId) : t('deleted Chapter {n}', { n: chapterNumber(chId) }),
+      chapterLabel: chapterKind(chId) !== 'chapter' ? chapterName(chId) : t('deleted Chapter {n}', { n: chapterNumber(chId) }),
       date: new Date().toISOString()
     });
     await window.neo.writeJSON(book.id, 'darlings', darlings);
   }
   if (currentChapterId === chId) currentChapterId = null;
   await deleteChapterQuiet(chId);
-  if (text) toast(t('Chapter removed — its words are in Darlings, or {key} to undo', { key: KZ }));
+  if (text) {
+    toast(kind === 'chapter'
+      ? t('Chapter removed — its words are in Darlings, or {key} to undo', { key: KZ })
+      : t('{name} removed — its words are in Darlings, or {key} to undo', { name, key: KZ }));
+  }
 }
 
-// Right-click a chapter heading or outline line: the first chapter can
-// become the prologue, the last the epilogue, and either can go back.
-function chapterRoleOptions(chId) {
-  const order = book.chapterOrder;
-  if (order.length < 2) return [];
-  const role = chapterRole(chId);
-  if (role) return [{ label: t('Number it again'), desc: t('It goes back to being a numbered chapter.'), value: 'unrole' }];
-  if (chId === order[0]) return [{ label: t('Make it the prologue'), desc: t('It opens the book before Chapter 1, unnumbered; the chapters after it renumber.'), value: 'prologue' }];
-  if (chId === order[order.length - 1]) return [{ label: t('Make it the epilogue'), desc: t('It closes the book after the last chapter, unnumbered.'), value: 'epilogue' }];
-  return [];
-}
-async function chapterMenuFor(chId) {
+// Right-click a chapter's box in the Chapters pane, its heading, or its
+// line in the outline: what it is (a chapter, a part, one of the pages a
+// book carries), or Delete. Resolves to the choice once it's made.
+async function chapterMenu(chId, x = 0, y = 0, from = null) {
+  const kind = chapterKind(chId);
   const words = countWords(chapterText(chId));
-  const choice = await optionModal(
-    chapterName(chId),
-    words ? t('{n} words.', { n: words }) : t('This chapter is empty.'),
-    [
-      ...chapterRoleOptions(chId),
-      { label: t('Delete chapter'), desc: words ? t('Its words move to Darlings, recoverable anytime.') : t('Nothing to save — it just goes.'), danger: true, value: 'delete' }
-    ]
-  );
+  const otherContents = book.chapterOrder.some((c) => c !== chId && chapterKind(c) === 'contents');
+  const items = CHAPTER_KINDS.map((k) => ({
+    label: kindName(k),
+    value: k,
+    checked: k === kind,
+    // one contents per book, and never over words: it would hide them
+    disabled: k === 'contents' && k !== kind && (otherContents || words > 0)
+  }));
+  items.push('-', { label: t('Delete'), value: 'delete', danger: true });
+  const choice = await popMenu(x, y, items, { title: chapterName(chId), from: from || document.querySelector(`.nav-item[data-id="${chId}"] .n-row`) });
+  if (!choice || choice === kind) return null;
   if (choice === 'delete') {
     await deleteChapterToDarlings(chId);
-  } else if (choice === 'prologue' || choice === 'epilogue') {
-    book[choice] = chId;
-  } else if (choice === 'unrole') {
-    delete book[chapterRole(chId)];
-  }
-  if (choice && choice !== 'delete') {
-    saveMeta();
-    renderChapters();
     if (currentTab === 'outline') renderOutline();
-    updateCounters();
+    return choice;
   }
+  snapshotStructure('chapter kind');
+  setChapterKind(chId, choice);
+  // a copyright page starts with what every copyright page says
+  if (choice === 'copyright' && !chapterText(chId).trim()) {
+    chapterHTML[chId] = copyrightStarter();
+    persistChapter(chId);
+  }
+  await saveMeta();
+  renderChapters();
+  if (currentTab === 'outline') renderOutline();
+  updateCounters();
   return choice;
 }
-async function chapterMenu(chId) { await chapterMenuFor(chId); }
+
+// Copyright © 2026 Hugh Howey / All rights reserved.
+function copyrightStarter() {
+  const name = (book && book.author) || library.authorName || t('Anonymous');
+  return `<p>${escHtml(t('Copyright © {year} {name}', { year: String(new Date().getFullYear()), name }))}</p>`
+    + `<p>${escHtml(t('All rights reserved.'))}</p>`;
+}
 
 /* ================================================================== */
 /*  EDITOR — typing                                                    */
@@ -2260,9 +2444,21 @@ function wireChapterBody(body, chId) {
   });
 }
 
+// the contents have nothing to type in: going there is only looking
+function showEntry(chId) {
+  const sec = document.querySelector(`.chapter[data-id="${chId}"]`);
+  if (!sec) return;
+  if (document.activeElement && document.activeElement.isContentEditable) document.activeElement.blur();
+  sec.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  currentChapterId = chId;
+  highlightNav();
+  updateCounters();
+}
+
 function focusChapterStart(chId) {
   const nb = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
   if (!nb) return;
+  if (!nb.isContentEditable) { showEntry(chId); return; }
   nb.focus({ preventScroll: true });
   const nr = document.createRange();
   const first = nb.querySelector('p');
@@ -2365,9 +2561,12 @@ function chapterStartBackspace(e, body, chId) {
   if (idx <= 0) return false;
   const prevId = book.chapterOrder[idx - 1];
   const prevBody = document.querySelector(`.chapter[data-id="${prevId}"] .chapter-body`);
-  if (!prevBody) return false;
+  if (!prevBody || chapterKind(prevId) === 'contents') return false;
+  const empty = prevBody.innerText.trim() === '';
+  // only story runs into story: a page above stays a page
+  if (!empty && !(isStory(chId) && isStory(prevId))) return false;
   e.preventDefault();
-  if (prevBody.innerText.trim() === '') {
+  if (empty) {
     // empty chapter above: swallow it
     snapshotStructure('empty chapter removed');
     breakRun++;
@@ -2391,6 +2590,7 @@ function chapterStartBackspace(e, body, chId) {
   }
   if (book.chapterTitles) delete book.chapterTitles[chId];
   if (book.chapterNotes) delete book.chapterNotes[chId];
+  if (book.chapterKinds) delete book.chapterKinds[chId];
   book.chapterOrder = book.chapterOrder.filter((c) => c !== chId);
   delete chapterHTML[chId];
   window.neo.deleteChapter(book.id, chId);
@@ -2622,6 +2822,20 @@ function handleEnter(e, body, chId) {
   if (el.nodeType === Node.TEXT_NODE) el = el.parentElement;
   const block = el && el.closest ? el.closest('p') : null;
   if (!block || !body.contains(block)) return false;
+  // on a page (a dedication, a part, the copyright) Enter is only a new
+  // line: breaks and new chapters belong to the story
+  if (!isStory(chId) && !block.classList.contains('poetry')) {
+    e.preventDefault();
+    enterRun = 0;
+    if (block.querySelector('span:not(.ph-mark)')) {
+      const caret = captureCaret();
+      stripJunkSpans(block);
+      restoreCaret(caret);
+    }
+    document.execCommand('insertParagraph');
+    syncChapter(body, chId);
+    return true;
+  }
   if (block.classList.contains('scene-break')) { e.preventDefault(); return true; } // Enter on a *** line: nothing
   // Enter in a poetry paragraph steps back into prose: an empty line becomes
   // an ordinary paragraph in place; otherwise the line splits and the new
@@ -2940,7 +3154,8 @@ function sceneBreakDelete(e, body, chId) {
 
 // Read a body's HTML for saving:
 function captureBody(body) {
-  return body.innerHTML;
+  // (a page marks the lines that say who said it, for the screen only)
+  return body.innerHTML.replace(/(<p\b[^>]*?) data-attr=""/g, '$1');
 }
 
 function syncChapter(body, chId) {
@@ -3214,11 +3429,10 @@ $('#tp-subtitle').addEventListener('keydown', titleEnter);
 function titleEnter(e) {
   if (e.key !== 'Enter') return;
   e.preventDefault();
-  if (book.chapterOrder.length === 0) {
-    newChapter();
-  } else {
-    focusChapter(book.chapterOrder[0]);
-  }
+  // into the story, past any pages that come before it
+  const first = book.chapterOrder.find((c) => isStory(c));
+  if (first) focusChapter(first);
+  else focusChapter(createChapterAt(storyEnd()));
 }
 $('#tp-title').addEventListener('input', () => {
   book.title = $('#tp-title').textContent.trim() || t('Untitled');
@@ -3303,6 +3517,7 @@ async function deleteChapterQuiet(chId) {
   delete wordCache[chId];
   if (book.sectionNotes) delete book.sectionNotes[chId];
   if (book.chapterNotes) delete book.chapterNotes[chId];
+  if (book.chapterKinds) delete book.chapterKinds[chId];
   stickies = stickies.filter((s) => s.chapterId !== chId);
   window.neo.writeJSON(book.id, 'stickies', stickies);
   window.neo.deleteChapter(book.id, chId);
@@ -3314,6 +3529,7 @@ async function deleteChapterQuiet(chId) {
 function focusChapter(chId) {
   const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
   if (!body) return;
+  if (!body.isContentEditable) { showEntry(chId); return; }
   body.focus();
   // caret at the very end
   const range = document.createRange();
@@ -3545,16 +3761,40 @@ function renderNav() {
     document.activeElement.matches(':focus-visible') ? document.activeElement.closest('.nav-item').dataset.id : null;
   list.innerHTML = '';
   book.chapterNotes = book.chapterNotes || {};
+  const solo = soloStory();
+  // the book from top to bottom: a faint + between the boxes (and above and
+  // below them) adds a chapter, a part or a page right there
+  const gap = (at) => {
+    const g = document.createElement('div');
+    g.className = 'nav-gap';
+    const plus = document.createElement('button');
+    plus.className = 'ng-plus';
+    plus.tabIndex = -1;
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', t('Add'));
+    const add = (e) => { e.preventDefault(); e.stopPropagation(); addEntryMenu(at, e.clientX, e.clientY, plus); };
+    plus.addEventListener('click', add);
+    plus.addEventListener('contextmenu', add);
+    g.appendChild(plus);
+    return g;
+  };
+  let inPart = false;
   book.chapterOrder.forEach((chId, i) => {
-    const words = chapterWords(chId);
+    const kind = chapterKind(chId);
+    const story = STORY_KINDS.includes(kind);
+    // a part gathers what follows it, up to the next part or the back of the book
+    if (kind === 'part') inPart = true;
+    else if (BACK_KINDS.includes(kind)) inPart = false;
+    const words = story ? chapterWords(chId) : 0;
     const flagged = !!document.querySelector(`.chapter[data-id="${chId}"] .ph-mark`);
-    const chTitle = (book.chapterTitles || {})[chId];
+    const chTitle = story ? (book.chapterTitles || {})[chId] : '';
     const item = document.createElement('div');
-    item.className = 'nav-item' + (chId === currentChapterId ? ' current' : '');
+    item.className = `nav-item kind-${kind}` + (story ? '' : ' nav-page') + (inPart && kind !== 'part' ? ' in-part' : '') +
+      (chId === currentChapterId ? ' current' : '') + (chId === justAddedEntry ? ' just-added' : '');
     item.dataset.id = chId;
     item.innerHTML = `<div class="n-row" title="${t('Drag to reorder chapters')}"><span class="n-label"></span>
-      <span style="display:flex;align-items:center"><span class="n-words">${fmtNum(words)}</span>${flagged ? `<span class="n-flag" title="${t('Unresolved placeholder')}"></span>` : ''}</span></div>`;
-    item.querySelector('.n-label').textContent = book.chapterOrder.length === 1
+      <span style="display:flex;align-items:center">${story ? `<span class="n-words">${fmtNum(words)}</span>` : ''}${flagged ? `<span class="n-flag" title="${t('Unresolved placeholder')}"></span>` : ''}</span></div>`;
+    item.querySelector('.n-label').textContent = chId === solo
       ? (book.title || t('The story'))
       : (chTitle ? `${chapterMark(chId)} · ${chTitle}` : chapterName(chId));
 
@@ -3568,26 +3808,41 @@ function renderNav() {
       item.classList.add('dragging');
     });
     rowEl.addEventListener('dragend', finishChapterDrag);
+    // right-click: what it is, or Delete
+    item.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.nav-note[contenteditable="true"]')) return; // the note's own text menu
+      e.preventDefault();
+      chapterMenu(chId, e.clientX, e.clientY, rowEl);
+    });
 
-    // outline your whole book from this panel:
-    const note = document.createElement('div');
-    note.className = 'nav-note';
-    note.contentEditable = 'true';
-    note.spellcheck = false;
-    note.textContent = book.chapterNotes[chId] || '';
-    note.setAttribute('role', 'textbox');
-    note.setAttribute('aria-label', t('Outline note'));
-    note.setAttribute('aria-placeholder', t('What happens here…'));
-    note.addEventListener('click', (e) => e.stopPropagation());
-    note.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); note.blur(); }
-      e.stopPropagation();
-    });
-    note.addEventListener('blur', () => {
-      book.chapterNotes[chId] = note.textContent.trim();
-      scheduleMetaSave();
-    });
-    item.appendChild(note);
+    if (story) {
+      // outline your whole book from this panel:
+      const note = document.createElement('div');
+      note.className = 'nav-note';
+      note.contentEditable = 'true';
+      note.spellcheck = false;
+      note.textContent = book.chapterNotes[chId] || '';
+      note.setAttribute('role', 'textbox');
+      note.setAttribute('aria-label', t('Outline note'));
+      note.setAttribute('aria-placeholder', t('What happens here…'));
+      note.addEventListener('click', (e) => e.stopPropagation());
+      note.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); note.blur(); }
+        e.stopPropagation();
+      });
+      note.addEventListener('blur', () => {
+        book.chapterNotes[chId] = note.textContent.trim();
+        scheduleMetaSave();
+      });
+      item.appendChild(note);
+    } else if (kind !== 'contents') {
+      // a page shows the start of what it says
+      const peek = document.createElement('div');
+      peek.className = 'nav-note nav-peek';
+      peek.textContent = entryPeek(chId);
+      if (!peek.textContent && PAGE_PROMPTS[kind]) { peek.dataset.ph = PAGE_PROMPTS[kind](); peek.classList.add('blank'); }
+      item.appendChild(peek);
+    }
 
     item.onclick = () => {
       switchTab('manuscript');
@@ -3596,29 +3851,130 @@ function renderNav() {
     // from the keyboard, the row is the chapter's button (F6 reaches the pane)
     pressable(rowEl, [
       item.querySelector('.n-label').textContent,
-      t('{n} words', { n: words }),
+      story ? t('{n} words', { n: words }) : '',
       flagged ? t('Unresolved placeholder') : ''
     ].filter(Boolean).join(', '));
+    list.appendChild(gap(i));
     list.appendChild(item);
     if (chId === focusedRow) rowEl.focus({ preventScroll: true });
   });
+  list.appendChild(gap(book.chapterOrder.length));
+  justAddedEntry = null;
+  renderContentsLists();
 }
 
+// the first words of a page, for its box in the Chapters pane
+function entryPeek(chId) {
+  const el = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  const holder = document.createElement('template');
+  holder.innerHTML = el ? el.innerHTML : (chapterHTML[chId] || '');
+  const first = [...holder.content.querySelectorAll('p:not(.ghost):not(.scene-break)')].map((p) => p.textContent.trim()).find(Boolean);
+  return first || '';
+}
+
+// The + between two boxes: which kind, then it's there, in place
+let justAddedEntry = null;
+async function addEntryMenu(at, x, y, from) {
+  const hasContents = book.chapterOrder.some((c) => chapterKind(c) === 'contents');
+  const kind = await popMenu(x, y, CHAPTER_KINDS.map((k) => ({ label: kindName(k), value: k, disabled: k === 'contents' && hasContents })), { from });
+  if (!kind) return;
+  addEntry(at, kind);
+}
+function addEntry(at, kind) {
+  switchTab('manuscript');
+  snapshotStructure('add ' + kind);
+  const chId = newEntryId();
+  justAddedEntry = chId;
+  book.chapterOrder.splice(at, 0, chId);
+  setChapterKind(chId, kind);
+  chapterHTML[chId] = kind === 'copyright' ? copyrightStarter() : '<p><br></p>';
+  persistChapter(chId);
+  saveMeta();
+  renderChapters();
+  // the new page is ready to write on (the contents, to look at)
+  if (kind === 'copyright') focusChapter(chId); else focusChapterStart(chId);
+  document.querySelector(`.chapter[data-id="${chId}"]`).scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+  updateCounters();
+  if (currentTab === 'outline') renderOutline();
+  return chId;
+}
+const newEntryId = () => 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+
+// The contents, in the manuscript: the parts, the chapters and the pages at
+// the back, as the reader will find them, each one a way there
+function bookContents(meta = book) {
+  const solo = soloStory(meta);
+  const out = [];
+  let inPart = false;
+  for (const chId of meta.chapterOrder) {
+    const kind = chapterKind(chId, meta);
+    if (kind === 'part') inPart = true;
+    else if (BACK_KINDS.includes(kind)) inPart = false;
+    if (['copyright', 'dedication', 'epigraph', 'contents'].includes(kind) || chId === solo) continue;
+    let label = chapterName(chId, meta);
+    const title = STORY_KINDS.includes(kind) ? ((meta.chapterTitles || {})[chId] || '') : '';
+    if (kind === 'part') {
+      const partTitle = partTitleOf(chId);
+      if (partTitle) label += ': ' + partTitle;
+    } else if (title) label = library.exportCustomChapterTitles && kind === 'chapter' ? title : label + ' — ' + title;
+    out.push({ chId, label, type: kind === 'part' ? 'part' : STORY_KINDS.includes(kind) ? 'chapter' : 'page', level: inPart && kind !== 'part' ? 1 : 0 });
+  }
+  return out;
+}
+// a part's title is the first line of its page (what follows is its quote)
+function partTitleOf(chId) {
+  const el = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  const paras = parasFromHtml(el ? el.innerHTML : (chapterHTML[chId] || ''));
+  return paras[0] && !paras[0].sceneBreak && !isAttribution(paras[0]) ? paras[0].text : '';
+}
+function renderContentsLists() {
+  const lists = $$('#chapters .toc-list');
+  if (!lists.length) return;
+  const entries = bookContents();
+  for (const list of lists) {
+    list.innerHTML = '';
+    for (const e of entries) {
+      const li = document.createElement('li');
+      li.className = `t-${e.type} lv${e.level}`;
+      li.textContent = e.label;
+      li.onclick = () => focusChapterStart(e.chId);
+      list.appendChild(li);
+    }
+  }
+}
+
+// A new chapter goes at the end of the story: after the last chapter, and
+// before an epilogue and the pages at the back
+function storyEnd() {
+  const order = book.chapterOrder;
+  const last = order.map((c) => chapterKind(c)).lastIndexOf('chapter');
+  if (last >= 0) return last + 1;
+  let at = order.length;
+  while (at > 0 && BACK_KINDS.includes(chapterKind(order[at - 1]))) at--;
+  return at;
+}
 $('#nav-add').onclick = () => {
   switchTab('manuscript');
-  const order = book.chapterOrder;
-  // a new chapter goes at the end of the story, which is before an epilogue
-  const beforeEpilogue = chapterRole(order[order.length - 1]) === 'epilogue';
-  if (beforeEpilogue) {
-    focusChapter(createChapterAt(order.length - 1));
-    return;
-  }
-  currentChapterId = order[order.length - 1] || null;
-  newChapter();
+  focusChapter(createChapterAt(storyEnd()));
 };
 
 // drop target for chapter reordering, with a gold line showing the landing spot
 const navList = $('#nav-list');
+// the + on the seam nearest the pointer, when it's near one (the pane
+// listens, so the seams above the first box and below the last wake too)
+$('#nav-pane').addEventListener('mousemove', (e) => {
+  if (chapterDragActive || e.buttons) return;
+  let near = null;
+  let best = 9;
+  for (const g of navList.querySelectorAll('.nav-gap')) {
+    const d = Math.abs(e.clientY - g.getBoundingClientRect().top);
+    if (d < best) { best = d; near = g; }
+  }
+  for (const g of navList.querySelectorAll('.nav-gap')) g.classList.toggle('near', g === near);
+});
+$('#nav-pane').addEventListener('mouseleave', () => {
+  navList.querySelectorAll('.nav-gap.near').forEach((g) => g.classList.remove('near'));
+});
 function finishChapterDrag(e) {
   if (!chapterDragActive) return;
   chapterDragActive = false;
@@ -3703,8 +4059,9 @@ function scheduleNavRefresh() {
 
 // Hover behavior for both side panes:
 function wireHoverPane(hotzone, pane, isPinnable) {
+  // (a menu opened from the Chapters pane keeps it open while it's up)
   const pinned = () => (isPinnable && pane.dataset.pinned === '1') ||
-    (pane.id === 'nav-pane' && chapterDragActive);
+    (pane.id === 'nav-pane' && (chapterDragActive || !!document.querySelector('.pop-menu')));
   hotzone.addEventListener('mouseenter', (e) => {
     if (e.buttons) return; // dragging something — stand down
     pane.classList.add('open');
@@ -4044,7 +4401,7 @@ function switchTab(name) {
   } else if (name === 'outline') {
     $('#aux-title').textContent = tabName('outline');
     oList.hidden = false;
-    if (book.chapterOrder.length === 0) createChapterAt(0);
+    if (!book.chapterOrder.some((c) => isStory(c))) createChapterAt(storyEnd());
     renderOutline();
     returnTo();
     findHere();
@@ -4075,7 +4432,12 @@ function renderOutline(focusTarget) {
   const wrap = $('#outline-list');
   wrap.innerHTML = '';
 
+  // the story's lines, with each part standing over its chapters (the pages
+  // a book carries have nothing to outline)
   book.chapterOrder.forEach((chId, i) => {
+    const kind = chapterKind(chId);
+    if (kind === 'part') { wrap.appendChild(outlinePartLine(chId)); return; }
+    if (!STORY_KINDS.includes(kind)) return;
     wrap.appendChild(outlineLine('chapter', chId, null, i, chapterMark(chId),
       book.chapterNotes[chId] || ''));
     (book.sectionNotes[chId] || []).forEach((sec, j) => {
@@ -4106,6 +4468,30 @@ function renderOutline(focusTarget) {
   }
 }
 
+// a part in the outline: its name and title, over the chapters it holds
+function outlinePartLine(chId) {
+  const line = document.createElement('div');
+  line.className = 'ol-line ol-part';
+  line.dataset.chId = chId;
+  const num = document.createElement('span');
+  num.className = 'ol-num';
+  num.textContent = chapterMark(chId);
+  const name = document.createElement('div');
+  name.className = 'ol-part-name';
+  const title = partTitleOf(chId);
+  name.textContent = chapterName(chId) + (title ? ': ' + title : '');
+  line.append(num, name);
+  line.addEventListener('contextmenu', (e) => { e.preventDefault(); chapterMenu(chId, e.clientX, e.clientY, line); });
+  return line;
+}
+
+// the story entry before this one (pages and parts aren't where sections go)
+function storyBefore(chId) {
+  const order = book.chapterOrder;
+  for (let i = order.indexOf(chId) - 1; i >= 0; i--) if (isStory(order[i])) return order[i];
+  return null;
+}
+
 function outlineLine(kind, chId, secId, index, label, text) {
   const line = document.createElement('div');
   line.className = 'ol-line ol-' + kind;
@@ -4114,7 +4500,7 @@ function outlineLine(kind, chId, secId, index, label, text) {
   const num = document.createElement('span');
   num.className = 'ol-num';
   num.textContent = label;
-  if (kind === 'chapter' && chapterRole(chId)) num.title = chapterName(chId);
+  if (kind === 'chapter' && chapterKind(chId) !== 'chapter') num.title = chapterName(chId);
   const txt = document.createElement('div');
   txt.className = 'ol-text';
   txt.contentEditable = 'true';
@@ -4187,14 +4573,13 @@ function outlineLine(kind, chId, secId, index, label, text) {
     if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
       if (kind !== 'chapter') return;
-      const pos = book.chapterOrder.indexOf(chId);
-      if (pos === 0) { toast(t('The first line has to be a chapter')); return; }
+      const prevCh = storyBefore(chId);
+      if (!prevCh) { toast(t('The first line has to be a chapter')); return; }
       if (countWords(chapterText(chId)) > 0) {
         toast(t('This chapter already has words in it — only empty chapter lines can become sections'));
         return;
       }
       save();
-      const prevCh = book.chapterOrder[pos - 1];
       book.sectionNotes[prevCh] = book.sectionNotes[prevCh] || [];
       const newSec = { id: 'sec-' + Date.now().toString(36), text: txt.textContent.trim() };
       book.sectionNotes[prevCh].push(newSec);
@@ -4225,9 +4610,8 @@ function outlineLine(kind, chId, secId, index, label, text) {
         scheduleMetaSave();
         syncGhosts(chId);
         renderOutline({ chId });
-      } else if (book.chapterOrder.length > 1 && countWords(chapterText(chId)) === 0) {
-        const pos = book.chapterOrder.indexOf(chId);
-        const prevCh = book.chapterOrder[Math.max(0, pos - 1)];
+      } else if (book.chapterOrder.filter((c) => isStory(c)).length > 1 && countWords(chapterText(chId)) === 0) {
+        const prevCh = storyBefore(chId) || book.chapterOrder.find((c) => c !== chId && isStory(c));
         deleteChapterQuiet(chId).then(() => renderOutline({ chId: prevCh }));
       }
     }
@@ -4238,8 +4622,7 @@ function outlineLine(kind, chId, secId, index, label, text) {
   line.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
     if (kind === 'chapter') {
-      const choice = await chapterMenuFor(chId);
-      if (choice === 'delete') renderOutline();
+      await chapterMenu(chId, e.clientX, e.clientY, line);
     } else {
       const choice = await optionModal(t('Delete this section?'), null,
         [{ label: t('Delete section'), desc: t('Removes the outline line and its gray ghost from the manuscript. Written prose is never touched.'), danger: true, value: 'delete' }]);
@@ -4432,32 +4815,32 @@ async function restoreDarling(id) {
 /*  COUNTERS                                                           */
 /* ================================================================== */
 
+// the story's words: the pages a book carries don't count
 function bookWordCount() {
-  return book.chapterOrder.reduce((sum, chId) => sum + chapterWords(chId), 0);
+  return book.chapterOrder.reduce((sum, chId) => sum + (isStory(chId) ? chapterWords(chId) : 0), 0);
 }
 
 function updateCounters() {
   if (!book) return;
   const total = bookWordCount();
   const wc = $('#word-counter');
-  if (wordMode === 'book') {
-    wc.textContent = t('{n} words', { n: total });
-  } else {
-    const n = currentChapterId ? chapterWords(currentChapterId) : 0;
-    const idx = book.chapterOrder.indexOf(currentChapterId);
-    wc.textContent = chapterRole(book.chapterOrder[idx])
-      ? t('{name}: {n} words', { name: chapterName(book.chapterOrder[idx]), n })
-      : t('ch. {ch}: {n} words', { ch: chapterNumber(book.chapterOrder[idx]), n });
+  if (wordMode === 'book') wc.textContent = t('{n} words', { n: total });
+  const cur = book.chapterOrder.includes(currentChapterId) ? currentChapterId : null;
+  const solo = soloStory();
+  if (wordMode !== 'book') {
+    const n = cur ? chapterWords(cur) : 0;
+    wc.textContent = cur && chapterKind(cur) !== 'chapter'
+      ? t('{name}: {n} words', { name: chapterName(cur), n })
+      : t('ch. {ch}: {n} words', { ch: cur ? chapterNumber(cur) : 0, n });
   }
   const pos = $('#pos-counter');
-  const idx = book.chapterOrder.indexOf(currentChapterId);
-  pos.textContent = book.chapterOrder.length <= 1
-    ? '' // a chapterless story needs no chapter locator
-    : (idx >= 0
-      ? (chapterRole(book.chapterOrder[idx])
-        ? chapterName(book.chapterOrder[idx])
-        : t('chapter {ch} of {total}', { ch: chapterNumber(book.chapterOrder[idx]), total: numberedChapters() }))
-      : t('{n} chapters', { n: numberedChapters() }));
+  pos.textContent = !cur
+    ? (numberedChapters() > 1 ? t('{n} chapters', { n: numberedChapters() }) : '')
+    : cur === solo
+      ? '' // a chapterless story needs no chapter locator
+      : chapterKind(cur) !== 'chapter'
+        ? chapterName(cur)
+        : t('chapter {ch} of {total}', { ch: chapterNumber(cur), total: numberedChapters() });
   // cache for the bookshelf progress bar
   if (book.wordCount !== total) {
     // only a true crossing earns a painting — a story that was already long
@@ -4959,7 +5342,7 @@ function snapshotStructure(label, opts) {
     rejoin: !!(opts && opts.rejoin),
     caret: captureCaret(),
     chapterOrder: [...book.chapterOrder],
-    roles: { prologue: book.prologue, epilogue: book.epilogue },
+    chapterKinds: { ...(book.chapterKinds || {}) },
     chapterHTML: { ...chapterHTML },
     chapterTitles: { ...(book.chapterTitles || {}) },
     chapterNotes: { ...(book.chapterNotes || {}) },
@@ -4974,9 +5357,7 @@ async function structuralUndo() {
   const snap = undoStack.pop();
   if (!snap || !book) return;
   book.chapterOrder = snap.chapterOrder;
-  for (const role of ['prologue', 'epilogue']) {
-    if (snap.roles && snap.roles[role]) book[role] = snap.roles[role]; else delete book[role];
-  }
+  book.chapterKinds = snap.chapterKinds;
   chapterHTML = snap.chapterHTML;
   book.chapterTitles = snap.chapterTitles;
   book.chapterNotes = snap.chapterNotes;
@@ -6322,20 +6703,60 @@ function parasFromHtml(html) {
   }).filter((p) => p.sceneBreak || p.text);
 }
 
+// The book's entries as the builders lay them out. Chapters, a prologue and
+// an epilogue are prose under their headings; a part is a page of its own
+// (its first line its title); the pages a book carries are set the way books
+// set them, and one left blank stays out. `toc` is the table of contents.
+// The Contents entry, when the book has one, is where a printed contents
+// page goes: what comes before it is the front of the book. Without one,
+// the front is the copyright, dedication and epigraph that open the book.
+const FRONT_PAGES = ['copyright', 'dedication', 'epigraph'];
 function exportChapters() {
-  // [{num, heading, paras: [{text, sceneBreak, html}]}]
-  return book.chapterOrder.map((chId, i) => {
+  const solo = soloStory();
+  const sections = [];
+  const toc = [];
+  const push = (sec) => { sec.num = sections.length + 1; sections.push(sec); return sec; };
+  let parts = 0;
+  let inPart = false;
+  let contentsAt = -1;
+  for (const chId of book.chapterOrder) {
+    const kind = chapterKind(chId);
+    if (kind === 'part') { parts += 1; inPart = true; } else if (BACK_KINDS.includes(kind)) inPart = false;
+    if (kind === 'contents') { if (contentsAt < 0) contentsAt = sections.length; continue; }
     const el = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
     const paras = parasFromHtml(el ? el.innerHTML : (chapterHTML[chId] || ''));
+    if (FRONT_PAGES.includes(kind)) {
+      if (paras.length) push({ kind, heading: '', label: kindName(kind), level: 0, paras });
+      continue;
+    }
+    if (kind === 'acknowledgments' || kind === 'about') {
+      if (!paras.length) continue;
+      const sec = push({ kind, heading: kindName(kind), level: 0, paras });
+      toc.push({ label: sec.heading, num: sec.num, level: 0, type: 'page' });
+      continue;
+    }
+    if (kind === 'part') {
+      // the page's first line is the part's title; what follows, a quote or a verse
+      const titled = !!(paras[0] && !paras[0].sceneBreak && !isAttribution(paras[0]));
+      const partTitle = titled ? paras[0].text : '';
+      const sec = push({ kind: 'part', heading: partLabel(parts), partTitle, level: 0, paras: titled ? paras.slice(1) : paras });
+      toc.push({ label: partTitle ? sec.heading + ': ' + partTitle : sec.heading, num: sec.num, level: 0, type: 'part' });
+      continue;
+    }
+    // the story: chapterless stories export as continuous text
     const chTitle = (book.chapterTitles || {})[chId];
-    // chapterless stories export as continuous text
-    const heading = book.chapterOrder.length === 1
+    const heading = chId === solo
       ? ''
       : library.exportCustomChapterTitles && chTitle
         ? chTitle
         : chapterName(chId) + (chTitle ? ' — ' + chTitle : '');
-    return { num: i + 1, heading, paras, role: chapterRole(chId) };
-  });
+    const level = inPart ? 1 : 0;
+    const sec = push({ kind: 'chapter', heading, paras, role: chapterRole(chId) || '', level });
+    toc.push({ label: heading || book.title, num: sec.num, level, type: 'chapter' });
+  }
+  if (contentsAt >= 0) sections.forEach((sec, i) => { sec.front = i < contentsAt; });
+  else for (const sec of sections) { if (!FRONT_PAGES.includes(sec.kind)) break; sec.front = true; }
+  return { sections, toc, contents: contentsAt >= 0 };
 }
 
 // The open book, packaged for the builders. Every builder takes an optional
@@ -6347,6 +6768,7 @@ function bookExportData() {
     book.uuid = crypto.randomUUID();
     saveMeta();
   }
+  const { sections, toc, contents } = exportChapters();
   return {
     id: book.id,
     uuid: book.uuid,
@@ -6356,9 +6778,17 @@ function bookExportData() {
     language: writingLanguage(),
     coverSeed: book.coverSeed,
     coverImage: book.coverImage || null,
-    sections: exportChapters()
+    sections,
+    toc,
+    // a printed contents page only where the writer put one; it lists the
+    // chapters too (a book of books lists its titles instead)
+    contents,
+    contentsChapters: true
   };
 }
+
+// a heading as plain text: a part's name with its title
+const plainHeading = (ch) => (ch.partTitle ? `${ch.heading}: ${ch.partTitle}` : ch.heading);
 
 function buildTxt(data) {
   const d = data || bookExportData();
@@ -6366,7 +6796,7 @@ function buildTxt(data) {
   if (d.subtitle) out += `${d.subtitle}\n`;
   out += t('by {author}', { author: d.author }) + '\n\n\n';
   for (const ch of d.sections) {
-    if (ch.heading) out += `${ch.heading.toUpperCase()}\n\n`;
+    if (ch.heading) out += `${plainHeading(ch).toUpperCase()}\n\n`;
     for (const p of ch.paras) out += p.sceneBreak ? '\n***\n\n' : (p.poetry ? '    ' : '') + p.text + '\n\n';
     out += '\n';
   }
@@ -6391,7 +6821,7 @@ function buildMd(data) {
   if (d.subtitle) out += `*${mdMeta(d.subtitle)}*\n\n`;
   out += `**${t('by {author}', { author: mdMeta(d.author) })}**\n\n`;
   for (const ch of d.sections) {
-    if (ch.heading) out += `\n## ${mdMeta(ch.heading)}\n\n`;
+    if (ch.heading) out += `\n## ${mdMeta(plainHeading(ch))}\n\n`;
     for (const p of ch.paras) {
       out += p.sceneBreak ? '\n***\n\n' : (p.poetry ? '> ' : '') + p.runs.map(mdRun).join('') + '\n\n';
     }
@@ -6445,7 +6875,8 @@ const headTag = (ch) => 'h' + Math.min(6, 2 + (ch.level || 0));
 
 function buildHtml(data, opts = {}) {
   const d = data || bookExportData();
-  const total = d.sections.reduce((s, ch) => s + ch.paras.reduce((n, p) => n + countWords(p.text || ''), 0), 0);
+  const total = d.sections.filter((ch) => (ch.kind || 'chapter') === 'chapter')
+    .reduce((s, ch) => s + ch.paras.reduce((n, p) => n + countWords(p.text || ''), 0), 0);
   const stamp = new Date().toLocaleString(NeoI18n.getLocale());
   // a chapter's text: only its opening paragraph gets the enlarged initial,
   // scene breaks resume ordinary body text
@@ -6512,7 +6943,7 @@ function buildHtml(data, opts = {}) {
   const contents = d.contents && d.toc && d.toc.length ? `
     <nav class="contents">
       <h2 class="hd">${escHtml(t('Contents'))}</h2>
-      <ol>${d.toc.filter((e) => e.type !== 'chapter').map((e) => `
+      <ol>${d.toc.filter((e) => d.contentsChapters || e.type !== 'chapter').map((e) => `
         <li class="lv${e.level} t-${e.type}"><a href="#s${e.num}"><span class="toc-t">${escHtml(e.label)}</span><span class="toc-pg" data-for="s${e.num}"></span></a></li>`).join('')}
       </ol>
     </nav>` : '';
@@ -6679,7 +7110,7 @@ function buildDocxEntries(data) {
   const contents = () => {
     body.push(docxP([{ text: t('Contents') }], { align: 'center', pageBreak: true, spaceBefore: 1200, size: 28, caps: true }));
     body.push(docxP([], {}));
-    for (const e of d.toc.filter((x) => x.type !== 'chapter')) {
+    for (const e of d.toc.filter((x) => d.contentsChapters || x.type !== 'chapter')) {
       body.push(docxP([{ text: e.label }], { indentLeft: 480 * e.level, spaceBefore: e.type === 'part' ? 240 : 0, caps: e.type === 'part' }));
     }
   };
@@ -7044,14 +7475,19 @@ async function shelfBookData(shelf, opts = {}) {
       inPart = false;
       continue;
     }
-    // a title and its chapters
+    // a title and its chapters: its story and its parts. The pages it
+    // carries as a book of its own (its copyright, its dedication…) stay
+    // with it; the bound book has pages of its own.
     if (!through) n = 0;
     const level = inPart ? 1 : 0;
     const chapters = [];
     for (const chId of m.chapterOrder || []) {
+      const kind = chapterKind(chId, m);
+      if (!STORY_KINDS.includes(kind) && kind !== 'part') continue;
       const paras = parasFromHtml(await window.neo.readChapter(m.id, chId));
-      if (paras.length) chapters.push({ chId, paras });
+      if (paras.length || kind === 'part') chapters.push({ chId, kind, paras });
     }
+    while (chapters.length && chapters[chapters.length - 1].kind === 'part') chapters.pop();
     if (!chapters.length) continue;
     const byline = m.author && m.author !== author ? m.author : '';
     if (single && chapters.length === 1) {
@@ -7071,15 +7507,29 @@ async function shelfBookData(shelf, opts = {}) {
       toc.push({ label: m.title, num: s.num, level, type: 'title' });
       chLevel = level + 1;
     }
+    // a title's own parts stand over the chapters that follow them
+    let titleParts = 0;
+    let underPart = false;
     for (const c of chapters) {
+      if (c.kind === 'part') {
+        titleParts += 1;
+        const titled = !!(c.paras[0] && !c.paras[0].sceneBreak && !isAttribution(c.paras[0]));
+        const partTitle = titled ? c.paras[0].text : '';
+        const s = push({ kind: 'part', heading: partLabel(titleParts), partTitle, level: chLevel, paras: titled ? c.paras.slice(1) : c.paras });
+        toc.push({ label: partTitle ? s.heading + ': ' + partTitle : s.heading, num: s.num, level: chLevel, type: 'part' });
+        underPart = true;
+        continue;
+      }
       const role = chapterRole(c.chId, m);
+      if (role === 'epilogue') underPart = false;
       const chTitle = (m.chapterTitles || {})[c.chId];
       let heading;
       if (role) heading = role === 'prologue' ? t('Prologue') : t('Epilogue');
       else { n += 1; heading = t('Chapter {n}', { n }); }
       if (chTitle) heading = library.exportCustomChapterTitles ? chTitle : heading + ' — ' + chTitle;
-      const s = push({ kind: 'chapter', heading, level: chLevel, paras: c.paras, role: role || '' });
-      toc.push({ label: heading, num: s.num, level: chLevel, type: 'chapter' });
+      const lv = underPart ? chLevel + 1 : chLevel;
+      const s = push({ kind: 'chapter', heading, level: lv, paras: c.paras, role: role || '' });
+      toc.push({ label: heading, num: s.num, level: lv, type: 'chapter' });
     }
   }
   // an EPUB wants one identity per book: a bound book keeps the first it gets
@@ -7103,7 +7553,10 @@ async function shelfBookData(shelf, opts = {}) {
     coverImage: (cover && cover.coverImage) || null,
     sections,
     toc,
-    contents: titles.length > 1 // a contents page in print, for a book of several titles
+    // a contents page in print for a book of several titles, or for one
+    // title that has a Contents page of its own (which lists its chapters)
+    contents: titles.length > 1 || (single && (titles[0].chapterOrder || []).some((c) => chapterKind(c, titles[0]) === 'contents')),
+    contentsChapters: single
   };
 }
 
