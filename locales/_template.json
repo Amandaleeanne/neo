@@ -108,6 +108,8 @@
   "Control": "",
   "Copy": "",
   "Couldn’t check for updates — try again later": "",
+  "Couldn’t export the anthology: {error}": "",
+  "Couldn’t export: {error}": "",
   "Couldn’t import {name}: {error}": "",
   "Cover": "",
   "Cover art": "",
