@@ -16,7 +16,11 @@ NEO currently speaks:
 | `pl` | Polski | complete, machine-assisted: native review welcome |
 | `ro` | Română | complete, machine-assisted: native review welcome |
 
-Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch and Polish. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
+Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch, Polish and Romanian. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
+
+Spellcheck starts off on every launch. Choosing a dictionary does not turn it on. If the interface starts in Romanian and the library has no saved spellcheck language, NEO selects and saves Romanian. Explicit dictionary choices survive interface-language changes. Other interface languages keep their existing defaults.
+
+Romanian lookup accepts standard diacritics, legacy `ş/ţ`, and decomposed Unicode accents without changing manuscript text. Suggestions use standard Romanian spelling. This checks spelling, not grammar: both `sa` and `să` are words. See [the dictionary evaluation](scripts/romanian-spellcheck.md) for performance, nspell compatibility, and licensing details.
 
 If you speak one of these and something reads oddly, a pull request that fixes a line is the most welcome contribution there is.
 

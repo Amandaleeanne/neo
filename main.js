@@ -1028,7 +1028,8 @@ const SPELL_LANGUAGES = {
   'es': { label: 'Español', pkg: 'dictionary-es' },
   'de': { label: 'Deutsch', pkg: 'dictionary-de' },
   'nl': { label: 'Nederlands', pkg: 'dictionary-nl' },
-  'pl': { label: 'Polski', pkg: 'dictionary-pl' }
+  'pl': { label: 'Polski', pkg: 'dictionary-pl' },
+  'ro': { label: 'Română', pkg: 'dictionary-ro' }
 };
 
 // The dictionary work runs in a helper process (spell-worker.js): parsing
@@ -1074,16 +1075,23 @@ async function loadSpellDictionary(code) {
   startSpellProcess();
   let custom = [];
   try { custom = readJSON(LIBRARY_FILE, {}).customWords || []; } catch { /* a nicety */ }
-  const res = await spellRequest({ type: 'load', dir: path.join(__dirname, 'node_modules', entry.pkg), custom });
+  const res = await spellRequest({ type: 'load', language: known, dir: path.join(__dirname, 'node_modules', entry.pkg), custom });
   if (!res.ok) { logError('spell', new Error(res.error || 'dictionary failed to load')); return false; }
   spellLanguage = known;
   return true;
 }
 
 function initSpell() {
-  let code = 'en-US';
-  try { code = readJSON(LIBRARY_FILE, {}).spellLanguage || 'en-US'; } catch { /* fresh library */ }
-  loadSpellDictionary(code);
+  const library = readJSON(LIBRARY_FILE, {});
+  // Resolve this once, before the renderer reads the library. Keep an
+  // explicit choice even with Romanian menus, and keep other locales'
+  // existing default and quotation-mark fallback unchanged.
+  if (!library.spellLanguage && uiLanguage === 'ro') {
+    library.spellLanguage = 'ro';
+    writeJSON(LIBRARY_FILE, library);
+  }
+  spellLanguage = SPELL_LANGUAGES[library.spellLanguage] ? library.spellLanguage : 'en-US';
+  loadSpellDictionary(spellLanguage);
 }
 
 ipcMain.handle('spell:setLanguage', async (_e, code) => {
