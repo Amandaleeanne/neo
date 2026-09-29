@@ -174,7 +174,7 @@
         for (const name of await listDir('')) {
           if (!String(name).startsWith('book-')) continue;
           const m = await readJSONFile(p(name, 'book.json'), null);
-          if (m && m.id) out.push({ id: m.id, title: m.title || 'Untitled', author: m.author || '', modified: m.modified || '' });
+          if (m && m.id) out.push({ id: m.id, title: m.title || 'Untitled', author: m.author || '', modified: m.modified || '', kind: m.kind || '' });
         }
       } catch { /* an empty list is honest enough */ }
       return out;

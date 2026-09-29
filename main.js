@@ -292,7 +292,7 @@ ipcMain.handle('library:listBooks', () => {
     for (const d of fs.readdirSync(LIBRARY_DIR)) {
       if (!d.startsWith('book-')) continue;
       const m = readJSON(path.join(LIBRARY_DIR, d, 'book.json'), null);
-      if (m && m.id) out.push({ id: m.id, title: m.title || t('Untitled'), author: m.author || '', modified: m.modified || '' });
+      if (m && m.id) out.push({ id: m.id, title: m.title || t('Untitled'), author: m.author || '', modified: m.modified || '', kind: m.kind || '' });
     }
   } catch (err) { logError('listBooks', err); }
   return out;
@@ -583,20 +583,81 @@ async function renderPDF(html) {
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   // Letter is a North American habit; most of the world prints A4.
   const letterCountries = ['US', 'CA', 'MX', 'PH'];
+  const options = {
+    pageSize: letterCountries.includes(app.getLocaleCountryCode()) ? 'Letter' : 'A4',
+    margins: { top: 1, bottom: 1, left: 1, right: 1 },
+    printBackground: false,
+    // chapter headings become the PDF's bookmarks, for jumping around in
+    // Preview or Acrobat, and the text is tagged for screen readers
+    generateTaggedPDF: true,
+    generateDocumentOutline: true
+  };
   try {
     await pdfWin.loadFile(tmp);
-    return await pdfWin.webContents.printToPDF({
-      pageSize: letterCountries.includes(app.getLocaleCountryCode()) ? 'Letter' : 'A4',
-      margins: { top: 1, bottom: 1, left: 1, right: 1 },
-      printBackground: false,
-      // chapter headings become the PDF's bookmarks, for jumping around in
-      // Preview or Acrobat, and the text is tagged for screen readers
-      generateTaggedPDF: true,
-      generateDocumentOutline: true
-    });
+    let pdf = await pdfWin.webContents.printToPDF(options);
+    // A book's contents page can't know its page numbers until the book has
+    // been printed once: read where each entry landed from that printing,
+    // write the numbers in, and print again. Each number has a fixed width
+    // on the page, so nothing moves between the two printings.
+    if (html.includes('class="toc-pg"')) {
+      const pages = pdfAnchorPages(pdf);
+      if (Object.keys(pages).length) {
+        await pdfWin.webContents.executeJavaScript(`(() => {
+          const pages = ${JSON.stringify(pages)};
+          for (const el of document.querySelectorAll('.toc-pg')) el.textContent = pages[el.dataset.for] || '';
+        })()`);
+        pdf = await pdfWin.webContents.printToPDF(options);
+      }
+    }
+    return pdf;
   } finally {
     pdfWin.destroy();
     try { fs.unlinkSync(tmp); } catch { /* already gone */ }
+  }
+}
+
+// The page each link target starts on (1 for the first page), read from a
+// PDF Chromium just printed. Skia writes the file's objects as plain text
+// (only page contents are compressed) and lists every linked-to anchor in
+// the catalog's /Dests, so the cross-reference table leads straight to them.
+// Anything laid out otherwise gives {}, and the contents go without numbers.
+function pdfAnchorPages(buf) {
+  try {
+    const s = buf.toString('latin1');
+    const sx = s.lastIndexOf('startxref');
+    const xref = parseInt(s.slice(sx + 9, sx + 40).trim(), 10);
+    const head = /^xref\s+(\d+)\s+(\d+)\s*?[\r\n]+/.exec(s.slice(xref, xref + 64));
+    const root = /\/Root (\d+) 0 R/.exec(s.slice(Math.max(0, sx - 4000), sx));
+    if (!head || !root) return {};
+    const first = +head[1];
+    const count = +head[2];
+    const table = xref + head[0].length;
+    const obj = (n) => {
+      if (n - first < 0 || n - first >= count) return '';
+      const at = parseInt(s.substr(table + (n - first) * 20, 10), 10);
+      return s.slice(at, s.indexOf('endobj', at));
+    };
+    const catalog = obj(+root[1]);
+    const pagesRef = /\/Pages (\d+) 0 R/.exec(catalog);
+    const destsRef = /\/Dests (\d+) 0 R/.exec(catalog);
+    if (!pagesRef || !destsRef) return {};
+    const order = [];
+    const walk = (n, depth) => {
+      const o = obj(n);
+      const kids = /\/Kids\s*\[([^\]]*)\]/.exec(o);
+      if (/\/Type\s*\/Pages\b/.test(o) && kids && depth < 32) {
+        for (const k of kids[1].matchAll(/(\d+) 0 R/g)) walk(+k[1], depth + 1);
+      } else order.push(n);
+    };
+    walk(+pagesRef[1], 0);
+    const index = new Map(order.map((n, i) => [n, i + 1]));
+    const out = {};
+    for (const m of obj(+destsRef[1]).matchAll(/\/([A-Za-z0-9_.-]+)\s*\[\s*(\d+) 0 R/g)) {
+      if (index.has(+m[2])) out[m[1]] = index.get(+m[2]);
+    }
+    return out;
+  } catch {
+    return {};
   }
 }
 

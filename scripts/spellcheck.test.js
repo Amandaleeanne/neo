@@ -138,6 +138,9 @@ test('learning a Romanian word removes cached Unicode-variant underlines across 
       writeLibrary: async (library) => { savedLibrary = JSON.parse(JSON.stringify(library)); }
     } }
   });
+  // app.js saves the library through its own writeLibrary(), which counts
+  // writes before handing them to window.neo
+  context.writeLibrary = (lib) => context.window.neo.writeLibrary(lib);
   const app = source('app.js');
   // Use the real scanner, cache and context-menu learn callback. Only DOM
   // primitives and IPC transport are replaced; the worker loads nspell.
