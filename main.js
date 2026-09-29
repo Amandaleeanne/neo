@@ -1016,6 +1016,17 @@ function createWindow() {
     }
   });
   win.loadFile('index.html');
+  // The menu bar follows the real full-screen state, whoever changed it.
+  // Electron only puts the bar back after a full screen it entered itself,
+  // so once a window manager's own full-screen key had been used (Sway, i3),
+  // NEO's toggle left the bar hidden for good. Run a tick later, after
+  // Electron's own show/hide, so this has the last word.
+  const fullScreenChanged = (full) => setImmediate(() => {
+    if (win.isDestroyed() || process.platform === 'darwin') return;
+    win.setMenuBarVisibility(!full && !win.isMenuBarAutoHide());
+  });
+  win.on('enter-full-screen', () => fullScreenChanged(true));
+  win.on('leave-full-screen', () => fullScreenChanged(false));
   const remember = () => {
     if (win.isDestroyed() || win.isFullScreen() || win.isMinimized()) return;
     writeSettings({ ...readSettings(), window: win.getNormalBounds() });
