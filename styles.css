@@ -160,6 +160,44 @@ button { font: inherit; cursor: pointer; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-700-normal.ttf') format('truetype'); font-weight: 700; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-700-italic.ttf') format('truetype'); font-weight: 700; font-style: italic; }
 
+/* Russian letters. Most faces above have none, so each such family gets a
+   face of Cyrillic only, under its own name: Oswald and Playfair from their
+   own families, the rest from a Cyrillic face chosen by a Russian reader.
+   Each is scaled (size-adjust) to stand as tall as the Latin letters beside
+   it, and takes the Latin face's line metrics (the overrides) so Russian
+   sits in the line exactly where Latin would. Declared after the Latin
+   faces, so they are the ones tried first for Cyrillic. The range is
+   Fontsource's "cyrillic" subset. Alegreya, Source Serif Pro and Jost have
+   Russian letters of their own. */
+@font-face { font-family: 'NEO Oswald'; src: url('fonts/oswald-cyrillic-700-normal.woff2') format('woff2'); font-weight: 700; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'NEO Playfair'; src: url('fonts/playfair-display-cyrillic-900-normal.woff2') format('woff2'); font-weight: 900; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'NEO Playfair'; src: url('fonts/playfair-display-cyrillic-900-italic.woff2') format('woff2'); font-weight: 900; font-style: italic; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+/* Linux body faces: Gelasio → Merriweather, TeX Gyre Pagella → Lora,
+   Libre Baskerville → Old Standard TT */
+@font-face { font-family: 'Gelasio'; src: url('fonts/merriweather-cyrillic-400-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 87.4%; ascent-override: 106.2%; descent-override: 39.1%; line-gap-override: 0.0%; }
+@font-face { font-family: 'Gelasio'; src: url('fonts/merriweather-cyrillic-400-italic.woff2') format('woff2'); font-weight: 400; font-style: italic; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 86.5%; ascent-override: 107.2%; descent-override: 39.5%; line-gap-override: 0.0%; }
+@font-face { font-family: 'Gelasio'; src: url('fonts/merriweather-cyrillic-700-normal.woff2') format('woff2'); font-weight: 700; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 87.4%; ascent-override: 106.2%; descent-override: 39.1%; line-gap-override: 0.0%; }
+@font-face { font-family: 'Gelasio'; src: url('fonts/merriweather-cyrillic-700-italic.woff2') format('woff2'); font-weight: 700; font-style: italic; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 86.4%; ascent-override: 107.4%; descent-override: 39.6%; line-gap-override: 0.0%; }
+@font-face { font-family: 'TeX Gyre Pagella'; src: url('fonts/lora-cyrillic-400-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 93.8%; ascent-override: 77.4%; descent-override: 30.0%; line-gap-override: 0.0%; }
+@font-face { font-family: 'TeX Gyre Pagella'; src: url('fonts/lora-cyrillic-400-italic.woff2') format('woff2'); font-weight: 400; font-style: italic; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 94.3%; ascent-override: 77.7%; descent-override: 29.3%; line-gap-override: 0.0%; }
+@font-face { font-family: 'TeX Gyre Pagella'; src: url('fonts/lora-cyrillic-700-normal.woff2') format('woff2'); font-weight: 700; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 94.2%; ascent-override: 76.4%; descent-override: 27.4%; line-gap-override: 0.0%; }
+@font-face { font-family: 'TeX Gyre Pagella'; src: url('fonts/lora-cyrillic-700-italic.woff2') format('woff2'); font-weight: 700; font-style: italic; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 91.8%; ascent-override: 79.1%; descent-override: 29.5%; line-gap-override: 0.0%; }
+@font-face { font-family: 'Libre Baskerville'; src: url('fonts/old-standard-tt-cyrillic-400-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 116.2%; ascent-override: 83.5%; descent-override: 23.2%; line-gap-override: 0.0%; }
+@font-face { font-family: 'Libre Baskerville'; src: url('fonts/old-standard-tt-cyrillic-400-italic.woff2') format('woff2'); font-weight: 400; font-style: italic; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 118.4%; ascent-override: 81.9%; descent-override: 22.8%; line-gap-override: 0.0%; }
+@font-face { font-family: 'Libre Baskerville'; src: url('fonts/old-standard-tt-cyrillic-700-normal.woff2') format('woff2'); font-weight: 700; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 111.8%; ascent-override: 86.8%; descent-override: 24.1%; line-gap-override: 0.0%; }
+/* drop caps: Libre Bodoni → Prata, TeX Gyre Chorus → Marck Script */
+@font-face { font-family: 'Libre Bodoni'; src: url('fonts/prata-cyrillic-400-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 94.2%; ascent-override: 98.0%; descent-override: 34.6%; line-gap-override: 0.0%; }
+@font-face { font-family: 'TeX Gyre Chorus'; src: url('fonts/marck-script-cyrillic-400-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 106.4%; ascent-override: 96.5%; descent-override: 27.1%; line-gap-override: 0.0%; }
+/* cover titles: Anton → Russo One, Bebas Neue → Oswald Medium, Abril Fatface →
+   Playfair Display Black, Cinzel → Forum */
+@font-face { font-family: 'NEO Anton'; src: url('fonts/russo-one-cyrillic-400-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 122.8%; ascent-override: 95.8%; descent-override: 26.8%; line-gap-override: 0.0%; }
+@font-face { font-family: 'NEO Bebas'; src: url('fonts/oswald-cyrillic-500-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 86.4%; ascent-override: 104.1%; descent-override: 34.7%; line-gap-override: 0.0%; }
+@font-face { font-family: 'NEO Abril'; src: url('fonts/playfair-display-cyrillic-900-normal.woff2') format('woff2'); font-weight: 400; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 91.7%; ascent-override: 115.4%; descent-override: 31.7%; line-gap-override: 0.0%; }
+@font-face { font-family: 'NEO Cinzel'; src: url('fonts/forum-cyrillic-400-normal.woff2') format('woff2'); font-weight: 900; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 106.1%; ascent-override: 92.0%; descent-override: 35.1%; line-gap-override: 0.0%; }
+/* Josefin Sans (the band cover, every author line) → Jost */
+@font-face { font-family: 'NEO Josefin'; src: url('fonts/jost-latin-700-normal.ttf') format('truetype'); font-weight: 700; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 105.1%; ascent-override: 71.3%; descent-override: 23.8%; line-gap-override: 0.0%; }
+@font-face { font-family: 'NEO Josefin'; src: url('fonts/jost-latin-700-normal.ttf') format('truetype'); font-weight: 600; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; size-adjust: 104.0%; ascent-override: 72.1%; descent-override: 24.0%; line-gap-override: 0.0%; }
+
 .book .b-text {
   position: absolute; left: 8px; right: 8px; z-index: 2;
   display: flex; flex-direction: column; pointer-events: none;
@@ -419,8 +457,9 @@ body.night #aux-editor * { color: inherit; }
   width: calc(680px * var(--page-zoom, 1)); max-width: 92%;
   margin: 40px auto 120px;
 }
-/* typewriter scrolling: room below the last line so it can sit mid-screen */
-body.typewriter #paper { margin-bottom: 60vh; }
+/* typewriter scrolling: room below the last line so it can sit mid-screen
+   (app.js works out how much the last page doesn't already give) */
+body.typewriter #paper { margin-bottom: var(--typewriter-room, 60vh); }
 /* focus mode: the manuscript fades back, the neo-focus highlight (set in
    app.js) repaints the current sentence / paragraph / scene at full ink */
 .chapter-body, .chapter-head { transition: color 0.25s ease; }
@@ -511,6 +550,10 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off) p:not(.po
    The italic is real markup, laid in when the paragraph is made, so ⌘I
    takes it off any word the writer wants roman. */
 .chapter-body p.poetry { margin: 0 2.5em; text-indent: 0; }
+/* a poetry paragraph is one italic; emphasis inside it stands upright, as
+   typesetters set it (and as every export does, see paraRuns in app.js) */
+.chapter-body i i { font-style: normal; }
+.chapter-body i i i { font-style: italic; }
 .chapter-body p:not(.poetry) + p.poetry { margin-top: 0.9em; }
 .chapter-body p.poetry + p:not(.poetry) { margin-top: 0.9em; }
 /* cap-off while the caret is in the first paragraph: the rule must stop
@@ -716,6 +759,9 @@ body.bright .spell-menu button { color: #eee; }
   opacity: 0.35; transition: opacity 0.15s ease;
 }
 #bottombar:hover, #bottombar.attn { opacity: 1; }
+/* full screen plus focus mode: nothing on screen but the page; the bar
+   comes back when the pointer reaches the bottom edge */
+body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
 #back-to-shelf {
   background: none; border: none; color: var(--muted); font-size: 12px;
 }
@@ -751,6 +797,8 @@ body.bright .spell-menu button { color: #eee; }
   color: #eee; font-size: 13px; padding: 6px 10px; width: 170px;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }
+/* outside the manuscript Find only finds */
+#searchbar.find-only #replace-input, #searchbar.find-only #replace-one, #searchbar.find-only #replace-all { display: none; }
 #searchbar button {
   background: none; border: 1px solid #3a3a3a; border-radius: 5px;
   color: #aaa; font-size: 12px; padding: 5px 9px;
@@ -842,14 +890,14 @@ body.bright .spell-menu button { color: #eee; }
 
 /* --- Brighter interface (View menu) — the quiet default, turned up --- */
 body.bright { --muted: #b4b4b4; }
-body.bright #bottombar { opacity: 0.92; }
+body.bright #bottombar { opacity: 1; }
 body.bright .tab { color: #b4b4b4; }
 body.bright .nav-item .n-row { color: #ccc; }
-body.bright .nav-item .n-words { color: #8f8f8f; }
-body.bright .nav-note { color: #999; }
-body.bright .shelf-grip { opacity: 0.55; }
+body.bright .nav-item .n-words { color: #a6a6a6; }
+body.bright .nav-note { color: #a6a6a6; }
+body.bright .shelf-grip { opacity: 1; color: #838383; }
 body.bright .book .b-refresh { color: rgba(255,255,255,0.4); }
-body.bright .new-book { border-color: #6a6a6a; color: #6a6a6a; }
+body.bright .new-book { border-color: #8a8a8a; color: #8a8a8a; }
 body.bright #add-shelf-btn, body.bright #import-btn { color: #b4b4b4; border-color: #555; }
 
 /* --- Hint toast --- */
@@ -872,3 +920,120 @@ body.bright .show-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(25
 
 /* pinned notes pane: the page column shifts left to clear the pane */
 #editor-view.side-pinned #paper-scroll { left: calc(50% - 125px); }
+
+/* ================================================================== */
+/* ACCESSIBILITY                                                        */
+/* ================================================================== */
+
+/* the progress chart's legend */
+.stats-legend {
+  display: flex; justify-content: space-between; font-size: 10px; color: #666; padding: 2px 4px;
+}
+.stats-legend .sl-daily { color: #3d8a6a; }
+
+/* Where the keyboard is: a gold ring on whatever Tab reaches. The mouse
+   never sees it, and the page itself never gets one. */
+:where(button, [role="button"], [role="tab"], select, summary, a[href]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+}
+.book:focus-visible, .new-book:focus-visible { outline-offset: 4px; border-radius: 3px 6px 6px 3px; }
+.tab:focus-visible { outline-offset: -2px; }
+
+/* The quiet chrome wakes for the keyboard as it does for the mouse. */
+#bottombar:has(:focus-visible) { opacity: 1; }
+#nav-pane:has(:focus-visible), #side-pane:has(:focus-visible) { transform: translateX(0); }
+.shelf:has(.shelf-label:focus-visible) .shelf-grip,
+.chapter-head:has(:focus-visible) .ch-sep { opacity: 0.6; }
+
+/* Brighter Interface (View menu, or the system's "Increase contrast"):
+   every text, hint and placeholder reads at 4.5:1, on paper and at night,
+   and no interface text is under 12px. The quiet default is untouched;
+   :where() keeps each rule exactly as strong as the one it brightens. */
+:where(body.bright) .btn-quiet { color: #8a8a8a; }
+:where(body.bright) #aux-paper h2 { color: #727272; }
+:where(body.bright) .ol-num { color: #767165; }
+:where(body.bright) .ol-hint { color: #75716a; }
+:where(body.bright) .darling .d-meta { font-size: 12px; color: #717171; }
+:where(body.bright) .darling button { font-size: 12px; color: #727272; }
+:where(body.bright) .darlings-empty { color: #75716a; }
+:where(body.bright) .nav-item .n-words { font-size: 12px; }
+:where(body.bright) #nav-add { color: #898989; }
+:where(body.bright) #side-pin { color: #8a8a8a; }
+:where(body.bright) .sticky .s-ch { font-size: 12px; color: #929292; }
+:where(body.bright) .sticky .s-actions button { color: #929292; font-size: 12px; }
+:where(body.bright) .stickies-empty { color: #8a8a8a; }
+:where(body.bright) .sticky textarea::placeholder { color: #929292; }
+:where(body.bright) #search-count,
+:where(body.bright) .stats-nums .lbl,
+:where(body.bright) .shortcut-row small,
+:where(body.bright) .shortcut-or { font-size: 12px; }
+:where(body.bright) .stats-legend { font-size: 12px; color: #8b8b8b; }
+:where(body.bright) .stats-legend .sl-daily { color: #54987c; }
+body.night:where(.bright) .darlings-empty,
+body.night:where(.bright) .ol-hint { color: #8d8b84; }
+body.night:where(.bright) .ol-num { color: #8f8a7d; }
+:where(body.night.bright) .darling .d-meta, :where(body.night.bright) .darling button { color: #999; }
+body.bright [contenteditable][data-ph]:empty::before,
+body.bright #aux-editor:empty::before,
+body.bright .ol-text:empty::before { color: #75716a; }
+body.bright .chapter-head .ch-title:empty::before { color: #747068; }
+body.bright .chapter-body p.ghost { color: #767168; }
+body.bright .chapter-body p.scene-break { color: #727272; }
+body.bright .nav-note:empty::before { color: #919191; }
+body.bright.night [contenteditable][data-ph]:empty::before,
+body.bright.night #aux-editor:empty::before,
+body.bright.night .chapter-head .ch-title:empty::before { color: #8d8b84; }
+body.bright.night .chapter-body p.ghost { color: #8f8b81; }
+body.bright.night .chapter-body p.scene-break { color: #8f8a7d; }
+body.bright .book .b-refresh { color: rgba(255,255,255,0.65); }
+
+/* The system's "Reduce motion": no fades, slides or shimmer. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
+  .book:hover, .new-book:hover { transform: none; }
+}
+
+/* Windows high contrast: the system picks every color; keep what color
+   alone used to say (the open tab, the current chapter, the page's edge). */
+@media (forced-colors: active) {
+  #bottombar { opacity: 1; }
+  .tab.active { text-decoration: underline; text-underline-offset: 4px; }
+  .nav-item.current { border-left-color: Highlight; }
+  .sheet, #aux-paper { border: 1px solid CanvasText; }
+  .ph-mark { border: 1px solid Highlight; }
+}
+
+/* Interface size (View menu): the shelf, the panes, the bottom bar and the
+   dialogs grow together; the page keeps its own size and zoom. Lengths
+   that meet the page or the window are corrected for the zoom. */
+:root { --ui-zoom: 1; }
+#bookshelf-view, #nav-pane, #side-pane, #bottombar, #searchbar, #hint, .modal { zoom: var(--ui-zoom); }
+#paper-scroll, #nav-hotzone, #side-hotzone { bottom: calc(40px * var(--ui-zoom)); }
+#editor-view.side-pinned #paper-scroll { left: calc(50% - 125px * var(--ui-zoom)); }
+.modal { max-height: calc(85vh / var(--ui-zoom)); max-width: calc(100vw / var(--ui-zoom) - 32px); }
+.font-list { max-height: calc(50vh / var(--ui-zoom)); }
+.shortcuts-modal {
+  width: min(920px, calc(100vw / var(--ui-zoom) - 48px));
+  height: min(720px, calc(100vh / var(--ui-zoom) - 80px));
+}
+/* An enlarged bottom bar in a small window keeps what matters: the tabs,
+   today's words and the word count. At Normal size nothing is shed. */
+.ui-zoomed #bottombar { container-type: inline-size; }
+.ui-zoomed #counters span, .ui-zoomed .tab, .ui-zoomed #back-to-shelf { white-space: nowrap; }
+@container (max-width: 900px) {
+  .ui-zoomed #pos-counter { display: none; }
+  .ui-zoomed .tab { padding: 5px 10px; }
+  .ui-zoomed .tab.darlings { margin-left: 8px; }
+  .ui-zoomed #counters { gap: 12px; }
+}
+@container (max-width: 700px) {
+  .ui-zoomed #zoom-control { display: none; }
+  .ui-zoomed #back-to-shelf span[data-i18n] { display: none; }
+}
+
+/* Help → Check for Update…: the download bar */
+.up-bar { height: 6px; background: #2a2a2a; border-radius: 3px; margin-top: 12px; overflow: hidden; }
+.up-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.2s ease; }

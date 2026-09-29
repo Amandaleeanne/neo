@@ -19,6 +19,8 @@ function applyStaticI18n(root = document) {
   root.querySelectorAll('[data-i18n-title]').forEach((el) => { if (el.title) el.title = t(el.title); });
   root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.placeholder); });
   root.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.dataset.ph = t(el.dataset.ph); });
+  // names for screen readers, where a symbol or a placeholder is all the eye gets
+  root.querySelectorAll('[data-i18n-label]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nLabel)); });
   // hints that styles.css draws with ::before read these custom properties
   const cssHints = {
     '--ph-add-title': t('add a title'),
@@ -89,6 +91,8 @@ let book = null;             // current book.json
 let chapterHTML = {};        // chapterId -> html (loaded at open)
 let savedHTML = {};          // chapterId -> html as last read from / written to disk
 let savedMetaSig = '';       // book.json as last read/written, minus the volatile bits
+let diskStamps = {};         // chapterId -> file mtime as of the last look at the disk
+let writing = {};            // chapterId -> chapter writes still on their way to disk
 let stickies = [];           // [{id, chapterId, text, resolved}]
 let darlings = [];           // [{id, html, text, chapterId, chapterLabel, date}]
 let currentTab = 'manuscript';
@@ -96,11 +100,74 @@ let currentChapterId = null; // chapter the caret/scroll is in
 let wordMode = 'book';       // 'book' | 'chapter'
 let saveTimers = {};
 
+// Every library.json write from this window goes through here. A look at the
+// disk (refreshFromDisk) can then tell its own writes from another device's:
+// a read that a write here crossed, or that finished while one was still on
+// its way, is older than the library in memory and must not replace it.
+let libraryGeneration = 0;
+let libraryWritesPending = 0;
+function writeLibrary(lib = library) {
+  libraryGeneration++;
+  libraryWritesPending++;
+  return new Promise((resolve) => resolve(window.neo.writeLibrary(lib)))
+    .finally(() => { libraryWritesPending--; });
+}
+
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 // Platform-aware key labels: Macs read ⌘⇧X, everyone else reads Ctrl+Shift+X
 const IS_MAC = navigator.platform.toLowerCase().includes('mac');
+// a touch screen (Pocket): nothing to hover, no right button
+const NO_HOVER = !!(window.matchMedia && window.matchMedia('(hover: none)').matches) || !!window.Capacitor;
+
+// Touch has no right-click: a long press on a book, a shelf name or a chapter
+// heading opens the same menu. Not inside the text itself — there a long
+// press belongs to the system's own selection handles.
+(() => {
+  let timer = null;
+  let start = null;
+  let swallowClick = false;
+  let armed = false; // held long enough; the menu opens when the finger lifts
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const target = e.target;
+    if (!target.closest) return;
+    // shelf names are editable on tap, but a long press on one is a menu
+    if (target.closest('[contenteditable="true"], input, textarea')) return;
+    if (target.closest('#pocket-chapters')) return;
+    const p = e.touches[0];
+    start = { x: p.clientX, y: p.clientY, target };
+    armed = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; armed = true; }, 550);
+  }, { passive: true });
+  const cancel = () => { clearTimeout(timer); timer = null; armed = false; };
+  document.addEventListener('touchmove', (e) => {
+    if (!start) return;
+    const p = e.touches[0];
+    if (Math.hypot(p.clientX - start.x, p.clientY - start.y) > 10) cancel();
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (armed && start) {
+      // iOS usually sends no click after a long press; when it does, it
+      // comes at once — so the guard lifts itself before the menu's first tap
+      swallowClick = true;
+      setTimeout(() => { swallowClick = false; }, 300);
+      const { target, x, y } = start;
+      setTimeout(() => target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })), 30);
+    }
+    cancel();
+  }, { passive: true });
+  document.addEventListener('touchcancel', cancel, { passive: true });
+  // the tap that ends a long press must not also open the book
+  document.addEventListener('click', (e) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+})();
 const K = (mac, pc) => (IS_MAC ? mac : pc);
 const KZ = K('⌘Z', 'Ctrl+Z');
 const KPH = K('⌘⇧X', 'Ctrl+Shift+X');
@@ -174,6 +241,16 @@ function optionModal(title, message, options) {
   });
 }
 
+// A click (or tap) on the dim page around any dialog dismisses it the way
+// its own quiet button would — Cancel or Later where there is one, else
+// Done/OK. Dialogs that must be answered have neither and stay put.
+document.addEventListener('mousedown', (e) => {
+  const bd = e.target && e.target.classList && e.target.classList.contains('modal-backdrop') ? e.target : null;
+  if (!bd || bd.dataset.stay === '1') return;
+  const btn = bd.querySelector('.m-cancel') || bd.querySelector('.m-ok');
+  if (btn) btn.click();
+});
+
 function toast(msg, ms = 4000) {
   const h = $('#hint');
   h.textContent = msg;
@@ -182,9 +259,38 @@ function toast(msg, ms = 4000) {
   toast._t = setTimeout(() => { h.hidden = true; }, ms);
 }
 
+// Scripts that do not separate words with spaces: a whitespace count reports
+// one "word" for a whole sentence, so word goals and statistics read far too
+// low. Intl.Segmenter knows their boundaries; the same API already runs the
+// focus mode (see sentenceRange), and one segmenter is kept per script.
+const SEGMENTED_SCRIPTS = [
+  { lang: 'th', chars: /[\u0E00-\u0E7F]/ }, // Thai
+  { lang: 'lo', chars: /[\u0E80-\u0EFF]/ }, // Lao
+  { lang: 'my', chars: /[\u1000-\u109F]/ }, // Myanmar
+  { lang: 'km', chars: /[\u1780-\u17FF]/ }  // Khmer
+];
+let wordSegmenter = null;
+let wordSegmenterLang = '';
+
 // a word holds at least one letter or digit, so French « » and spaced
 // dashes are not counted as words
-const countWords = (text) => (text.trim().match(/\S+/g) || []).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+function countWords(text) {
+  const trimmed = text.trim();
+  if (trimmed === '') return 0;
+  if (window.Intl && Intl.Segmenter) {
+    const script = SEGMENTED_SCRIPTS.find((s) => s.chars.test(trimmed));
+    if (script) {
+      if (wordSegmenterLang !== script.lang) {
+        wordSegmenter = new Intl.Segmenter(script.lang, { granularity: 'word' });
+        wordSegmenterLang = script.lang;
+      }
+      let words = 0;
+      for (const part of wordSegmenter.segment(trimmed)) if (part.isWordLike) words += 1;
+      return words;
+    }
+  }
+  return (trimmed.match(/\S+/g) || []).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+}
 
 function cleanChapterEl(id) {
   const el = document.querySelector(`.chapter[data-id="${id}"] .chapter-body`);
@@ -271,10 +377,13 @@ function showFirstRun() {
     const capRow = $('#fr-dropcaps');
     capRow.innerHTML = '';
     const caps = { literary: t('Literary'), fantasy: t('Fantasy'), scifi: t('Sci-Fi') };
+    // an A of the alphabet the sample is written in, so each button shows
+    // the drop cap the writer will get (Cyrillic letters come from other faces)
+    const capA = /\p{Script=Cyrillic}/u.test($('#fr-sample-text').textContent) ? 'А' : 'A';
     for (const key of Object.keys(caps)) {
       const b = document.createElement('button');
       b.className = 'fr-font' + (picked.dropcap === key ? ' sel' : '');
-      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">A</span>${caps[key]}`;
+      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">${capA}</span>${caps[key]}`;
       b.onmouseenter = () => { document.documentElement.style.setProperty('--dropcap-font', DROPCAP_FONTS[key]); };
       b.onmouseleave = preview;
       b.onclick = () => {
@@ -293,7 +402,7 @@ function showFirstRun() {
     // the shelf was drawn (and the author record seeded as Anonymous) before
     // the name was typed — carry the name across
     currentAuthor().name = library.authorName || (library.penNames || [])[0] || t('Anonymous');
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
     fr.hidden = true;
     renderShelves();
@@ -320,6 +429,25 @@ function shelvesFor(authorId) {
 
 function displayAuthor() {
   return currentAuthor().name || t('Anonymous');
+}
+
+// Redrawing the shelves used to read every book.json again — eighty files
+// through the bridge on Pocket, for a shelf rename. The shelves now keep
+// what they last read; any write to a book, and every look at the disk
+// (refreshFromDisk), forgets it.
+const bookMetaCache = new Map();
+async function shelfMeta(bookId) {
+  if (bookMetaCache.has(bookId)) return bookMetaCache.get(bookId);
+  const meta = await window.neo.readBookMeta(bookId);
+  if (meta) bookMetaCache.set(bookId, meta);
+  return meta;
+}
+// Saves a book's meta and drops the cached copy. This used to be done by
+// replacing window.neo.writeBookMeta, but on desktop that object is
+// read-only, so the assignment threw and app.js stopped loading.
+function writeBookMeta(bookId, meta) {
+  bookMetaCache.delete(bookId);
+  return window.neo.writeBookMeta(bookId, meta);
 }
 
 async function renderShelves() {
@@ -371,7 +499,7 @@ async function renderShelves() {
       if (!moving) return;
       library.shelves = library.shelves.filter((s) => s.id !== shelfId);
       library.shelves.splice(index, 0, moving);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       // move the shelf on screen rather than redrawing everything
       const secs = [...wrap.querySelectorAll('.shelf')];
       const movingSec = secs.find((el) => el.dataset.shelfId === shelfId);
@@ -404,14 +532,30 @@ async function renderShelves() {
 
     const label = document.createElement('span');
     label.className = 'shelf-label';
-    label.contentEditable = 'true';
+    // on a touch screen the name turns editable only when tapped, so a long
+    // press (the menu) never wakes the keyboard or selects the text
+    label.contentEditable = NO_HOVER ? 'false' : 'true';
     label.spellcheck = false;
     label.textContent = shelf.name;
     label.title = t('Click to rename · right-click to export or delete');
+    if (NO_HOVER) {
+      label.addEventListener('click', () => {
+        if (label.isContentEditable) return;
+        label.contentEditable = 'true';
+        label.focus();
+        const r = document.createRange();
+        r.selectNodeContents(label);
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      });
+    }
     label.addEventListener('blur', async () => {
       shelf.name = label.textContent.trim() || shelf.name;
       label.textContent = shelf.name;
-      await window.neo.writeLibrary(library);
+      if (NO_HOVER) label.contentEditable = 'false';
+      await writeLibrary(library);
     });
     label.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); label.blur(); }
@@ -442,7 +586,7 @@ async function renderShelves() {
           if (!other.bookIds.includes(id)) other.bookIds.push(id);
         }
         library.shelves = library.shelves.filter((s) => s.id !== shelf.id);
-        await window.neo.writeLibrary(library);
+        await writeLibrary(library);
         renderShelves();
       }
     });
@@ -511,7 +655,7 @@ async function renderShelves() {
       if (ind) ind.remove();
       for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== bookId);
       shelf.bookIds.splice(index, 0, bookId);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       // slide the tile into place; the shelf itself is not redrawn
       const tile = document.querySelector(`.book[data-book-id="${bookId}"]`);
       if (tile) {
@@ -522,7 +666,7 @@ async function renderShelves() {
     });
 
     for (const bookId of shelf.bookIds) {
-      const meta = await window.neo.readBookMeta(bookId);
+      const meta = await shelfMeta(bookId);
       if (!meta) continue;
       row.appendChild(bookTile(meta));
     }
@@ -533,6 +677,7 @@ async function renderShelves() {
     blank.textContent = '+';
     blank.title = t('Start a new book');
     blank.onclick = () => createBookOnShelf(shelf);
+    pressable(blank, t('Start a new book'));
     row.appendChild(blank);
 
     sec.appendChild(label);
@@ -638,6 +783,8 @@ function bookTile(meta) {
     ? t('{title} — {count} / {goal} words', { title: meta.title, count: meta.wordCount || 0, goal: meta.wordGoal })
     : meta.title;
   el.onclick = () => openBook(meta.id);
+  pressable(el, [el.title, meta.author ? t('by {author}', { author: meta.author }) : ''].filter(Boolean).join(', '));
+  el.querySelector('.b-refresh').setAttribute('aria-hidden', 'true'); // the book's right-click menu offers the same
   el.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('application/x-neo-book', meta.id);
     // the ghost that rides under the cursor is a faded, smaller cover, held
@@ -668,7 +815,7 @@ function bookTile(meta) {
       if (fname) {
         meta.coverImage = fname;
         meta.coverMode = 'image';
-        await window.neo.writeBookMeta(meta.id, meta);
+        await writeBookMeta(meta.id, meta);
         renderShelves();
       }
     } else if (/\.(docx|txt|md)$/i.test(p)) {
@@ -680,54 +827,74 @@ function bookTile(meta) {
 
   el.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
-    const options = [
-      { label: meta.coverImage ? t('Replace cover art…') : t('Set cover art…'), desc: t('Pick an image (2:3 works best). Or just drag one from Finder onto the book.'), value: 'cover' }
-    ];
+    const options = [];
+    // no hover on a touch screen, so the ↻ that lives under the pointer
+    // moves into the menu; picking an image file is a desktop affair
+    if (NO_HOVER) options.push({ label: t('New cover'), desc: t('Another abstract cover for this book.'), value: 'refresh' });
+    else options.push({ label: meta.coverImage ? t('Replace cover art…') : t('Set cover art…'), desc: t('Pick an image (2:3 works best). Or just drag one from Finder onto the book.'), value: 'cover' });
     if (meta.coverImage) {
       options.push({ label: t('Remove cover art'), desc: t('Deletes the image from the book folder. (To just hide it, use the ↻ on the book.)'), danger: true, value: 'uncover' });
     }
+    // Pocket has no File menu: export lives here and in the ⋯ sheet
+    if (window.Capacitor) options.push({ label: t('Export…'), desc: t('Text, Markdown, HTML, Word or EPUB, through the share sheet.'), value: 'export' });
     options.push(
+      // the ↻ on the cover, for the keyboard and screen readers
+      { label: t('New cover'), value: 'refresh' },
       { label: t('Set word goal…'), desc: t('Adds the subtle progress bar to the cover.'), value: 'goal' },
       { label: t('Remove from bookshelf'), desc: t('Takes it off your shelves. The files stay safe in your NEO Library folder on disk.'), value: 'remove' },
-      {
-        label: navigator.platform.toLowerCase().includes('win') ? t('Move to Recycle Bin') : t('Move to Trash'),
-        desc: t('Sends the book folder to your system trash, where you can recover it.'),
-        danger: true, value: 'trash'
-      }
+      window.Capacitor
+        ? { label: t('Delete book'), desc: t('Removes the book folder. The Files app keeps it in Recently Deleted for 30 days.'), danger: true, value: 'trash' }
+        : {
+          label: navigator.platform.toLowerCase().includes('win') ? t('Move to Recycle Bin') : t('Move to Trash'),
+          desc: t('Sends the book folder to your system trash, where you can recover it.'),
+          danger: true, value: 'trash'
+        }
     );
     const choice = await optionModal(`“${meta.title}”`, null, options);
-    if (choice === 'cover') {
+    if (choice === 'refresh') {
+      await refreshCover(meta, el);
+    } else if (choice === 'export') {
+      const fmt = await optionModal(t('Export “{title}”', { title: meta.title }), null, [
+        { label: t('Text (.txt)'), value: 'txt' }, { label: t('Markdown (.md)'), value: 'md' }, { label: t('HTML (.html)'), value: 'html' },
+        { label: t('Word (.docx)'), value: 'docx' }, { label: t('EPUB (.epub)'), value: 'epub' }
+      ]);
+      if (!fmt) return;
+      await openBook(meta.id);
+      await doExport(fmt);
+    } else if (choice === 'cover') {
       const src = await window.neo.pickCover();
       if (!src) return;
       const fname = await window.neo.setCover(meta.id, src);
       if (fname) {
         meta.coverImage = fname;
         meta.coverMode = 'image';
-        await window.neo.writeBookMeta(meta.id, meta);
+        await writeBookMeta(meta.id, meta);
         renderShelves();
       }
+    } else if (choice === 'refresh') {
+      await refreshCover(meta, el);
     } else if (choice === 'uncover') {
       await window.neo.removeCover(meta.id);
       meta.coverImage = null;
-      await window.neo.writeBookMeta(meta.id, meta);
+      await writeBookMeta(meta.id, meta);
       renderShelves();
     } else if (choice === 'goal') {
       const goal = await askInput(t('Word count goal for “{title}”', { title: meta.title }), t('e.g. 80000 — blank removes the goal'),
         meta.wordGoal ? String(meta.wordGoal) : '');
       if (goal === null) return;
       meta.wordGoal = parseInt(goal, 10) || 0;
-      await window.neo.writeBookMeta(meta.id, meta);
+      await writeBookMeta(meta.id, meta);
       renderShelves();
     } else if (choice === 'remove') {
       for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== meta.id);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       renderShelves();
       toast(t('“{title}” removed from the shelves — its files are still in your NEO Library', { title: meta.title }));
     } else if (choice === 'trash') {
       const ok = await window.neo.deleteBook(meta.id, meta.title);
       if (ok) {
         for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== meta.id);
-        await window.neo.writeLibrary(library);
+        await writeLibrary(library);
         renderShelves();
       }
     }
@@ -762,14 +929,14 @@ async function requestPaint(meta, text) {
   if (!(await window.neo.hasSecret(provider))) {
     if (!library.coverArtNudged) {
       library.coverArtNudged = true;
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       toast(t('This story just passed {n} words — add an API key under File → Cover Art… and NEO will paint it a cover.', { n: PAINT_AT }), 8000);
     }
     return;
   }
   meta.coverArt = { status: 'pending', at: new Date().toISOString(), words: meta.wordCount || 0 };
   if (book && book.id === meta.id) scheduleMetaSave();
-  else await window.neo.writeBookMeta(meta.id, meta);
+  else await writeBookMeta(meta.id, meta);
   markPainting(meta.id, true);
   if (text == null) {
     const m = await window.neo.readBookMeta(meta.id);
@@ -802,7 +969,7 @@ async function requestPaint(meta, text) {
     toast(t('NEO couldn’t paint that cover: {error}', { error: live.coverArt.error }), 7000);
   }
   if (live === book) scheduleMetaSave();
-  else await window.neo.writeBookMeta(meta.id, live);
+  else await writeBookMeta(meta.id, live);
   markPainting(meta.id, false);
   if (!$('#bookshelf-view').hidden) renderShelves();
 }
@@ -849,7 +1016,7 @@ async function refreshCover(meta, el) {
   } else {
     live.coverMode = choice;
   }
-  if (live === book) scheduleMetaSave(); else await window.neo.writeBookMeta(meta.id, live);
+  if (live === book) scheduleMetaSave(); else await writeBookMeta(meta.id, live);
   dressTile(el, live);
 }
 
@@ -859,9 +1026,9 @@ async function createBookOnShelf(shelf) {
     notes: (library.tabDefaults && library.tabDefaults.notes) || 'Notes',
     outline: (library.tabDefaults && library.tabDefaults.outline) || 'Outline'
   };
-  await window.neo.writeBookMeta(meta.id, meta);
+  await writeBookMeta(meta.id, meta);
   shelf.bookIds.push(meta.id);
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   openBook(meta.id);
 }
 
@@ -896,8 +1063,24 @@ $('#add-shelf-btn').onclick = async () => {
     bookIds: [],
     authorId: currentAuthor().id
   });
-  await window.neo.writeLibrary(library);
-  renderShelves();
+  await writeLibrary(library);
+  await renderShelves();
+  // the new shelf may be below the fold: bring it up, name ready to type over
+  const shelves = $$('#shelves .shelf');
+  const last = shelves[shelves.length - 1];
+  if (last) {
+    last.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
+    const label = last.querySelector('.shelf-label');
+    if (label) setTimeout(() => {
+      if (NO_HOVER) { label.click(); return; }
+      label.focus();
+      const r = document.createRange();
+      r.selectNodeContents(label); // selected: typing replaces "New Shelf"
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }, 350);
+  }
 };
 
 // Drag a book up to your name: if you write under other names too, a little
@@ -983,8 +1166,8 @@ async function moveBookToAuthor(bookId, authorId) {
   for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== bookId);
   shelf.bookIds.unshift(bookId); // the top shelf, first in line
   meta.author = target.name;
-  await window.neo.writeBookMeta(bookId, meta);
-  await window.neo.writeLibrary(library);
+  await writeBookMeta(bookId, meta);
+  await writeLibrary(library);
   renderShelves();
   toast(t('“{title}” now sits on {name}’s top shelf — Esc puts it back', { title: meta.title, name: target.name }), 6000);
 }
@@ -996,8 +1179,8 @@ async function undoShelfMove() {
   for (const s of library.shelves) s.bookIds = s.bookIds.filter((b) => b !== m.bookId);
   home.bookIds.splice(Math.min(m.index, home.bookIds.length), 0, m.bookId);
   const meta = await window.neo.readBookMeta(m.bookId);
-  if (meta) { meta.author = m.author; await window.neo.writeBookMeta(m.bookId, meta); }
-  await window.neo.writeLibrary(library);
+  if (meta) { meta.author = m.author; await writeBookMeta(m.bookId, meta); }
+  await writeLibrary(library);
   renderShelves();
   toast(t('“{title}” is back where it was', { title: m.title }));
   return true;
@@ -1024,7 +1207,7 @@ async function reshelveBook() {
   if (!pick) return;
   const shelf = shelvesFor(currentAuthor().id)[0] || library.shelves[0];
   shelf.bookIds.push(pick);
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   renderShelves();
   toast(t('“{title}” is back on the shelf', { title: loose.find((b) => b.id === pick).title }));
 }
@@ -1076,7 +1259,7 @@ $('#author-chip').onclick = async () => {
     library.currentAuthorId = target.id;
     library.authorName = library.authors[0].name;
   }
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   renderShelves();
 };
 
@@ -1092,6 +1275,7 @@ async function openBook(bookId) {
   undoStack = [];
   chapterHTML = {};
   savedHTML = {};
+  diskStamps = {};
   for (const chId of book.chapterOrder) {
     chapterHTML[chId] = await window.neo.readChapter(bookId, chId);
     savedHTML[chId] = chapterHTML[chId];
@@ -1139,7 +1323,7 @@ async function openBook(bookId) {
   // the Enter hint shows once per library, ever
   if (!library.hintShown) {
     library.hintShown = true;
-    window.neo.writeLibrary(library);
+    writeLibrary(library);
     setTimeout(() => toast(t('Enter twice = section break · three times = new chapter · {key} shows everything else', { key: KHELP }), 7000), 800);
   }
 }
@@ -1159,6 +1343,7 @@ function renderChapters() {
     sec.dataset.id = chId;
     const head = document.createElement('div');
     head.className = 'chapter-head';
+    head.id = 'ch-head-' + chId;
     head.title = t('Right-click for chapter options · click after the number to add a title');
     const num = document.createElement('span');
     num.className = 'ch-num';
@@ -1167,6 +1352,7 @@ function renderChapters() {
     if (role) sec.classList.add(role);
     const sep = document.createElement('span');
     sep.className = 'ch-sep';
+    sep.setAttribute('aria-hidden', 'true');
     sep.textContent = '—';
     const titleSpan = document.createElement('span');
     titleSpan.className = 'ch-title';
@@ -1200,6 +1386,11 @@ function renderChapters() {
     const body = document.createElement('div');
     body.className = 'chapter-body';
     body.contentEditable = 'true';
+    // screen readers name each chapter by its heading (a lone chapter by the book)
+    body.setAttribute('role', 'textbox');
+    body.setAttribute('aria-multiline', 'true');
+    if (solo) body.setAttribute('aria-label', book.title || t('The story'));
+    else body.setAttribute('aria-labelledby', head.id);
     body.spellcheck = false; // NEO runs its own spellcheck pass
     body.innerHTML = chapterHTML[chId] || '<p><br></p>';
     // older marks used a "?" that read as a broken image — normalize to the flag
@@ -1416,7 +1607,7 @@ function emptyChapterBackspace(e, body, chId) {
   breakRun++;
   if (idx > 0) {
     const prev = book.chapterOrder[idx - 1];
-    deleteChapterQuiet(chId).then(() => { focusChapter(prev, { quiet: true }); resetNativeUndo(); });
+    deleteChapterQuiet(chId).then(() => { focusChapter(prev); resetNativeUndo(); });
   } else {
     // an empty chapter 1 dissolves too — the caret lands at the top of
     // what just became the new chapter 1
@@ -1697,19 +1888,10 @@ function splitChapterAt(body, chId, block, sel) {
   const newId = createChapterAt(idx + 1);
   chapterHTML[newId] = parts.join('') || '<p><br></p>';
   persistChapter(newId);
-  const keepScroll = $('#paper-scroll').scrollTop;
   renderChapters();
-  $('#paper-scroll').scrollTop = keepScroll; // the split point stays in view: no bounce
   focusChapterStart(newId);
   resetNativeUndo();
-  // the new chapter's first line begins just below the split; if it landed
-  // out of sight (a split near the bottom of the window), bring it up
-  const first = document.querySelector(`.chapter[data-id="${newId}"] p`);
-  if (first) {
-    const r = first.getBoundingClientRect();
-    const sr = $('#paper-scroll').getBoundingClientRect();
-    if (r.top < sr.top || r.bottom > sr.bottom - 40) first.scrollIntoView({ block: 'center' });
-  }
+  document.querySelector(`.chapter[data-id="${newId}"] p`).scrollIntoView({ block: 'start' });
   breakRun++;
 }
 
@@ -2097,8 +2279,8 @@ document.addEventListener('selectionchange', () => {
 // spans — so every block boundary and <br> becomes a paragraph break, and
 // styling that only lives in a style attribute is read as bold/italic.
 function cleanPasteHtml(html) {
-  const holder = document.createElement('div');
-  holder.innerHTML = html;
+  // parsed off to the side: nothing in a clipboard loads or runs
+  const holder = new DOMParser().parseFromString(html, 'text/html').body;
   holder.querySelectorAll('script,style,meta,link,img,table,head,title').forEach((n) => n.remove());
   // Google Docs wraps the whole clipboard in <b style="font-weight:normal">
   holder.querySelectorAll('b, strong').forEach((b) => {
@@ -2208,7 +2390,7 @@ function smartKeys(e, body) {
     e.preventDefault();
     const before = prevChars(1);
     const opening = before === '' || /[\s\(\[\{—‘“«„>]/.test(before);
-    const q = quoteStyle();
+    const q = e.key === '"' ? bookQuotes(body) : quoteStyle();
     let ch;
     if (e.key === "'") {
       // most languages type ' as an apostrophe only; English and Dutch also
@@ -2232,7 +2414,9 @@ const QUOTE_STYLES = {
   es: { open: '«', close: '»' },                          // RAE: « » first
   it: { open: '«', close: '»' },
   de: { open: '„', close: '“' },
-  pl: { open: '„', close: '”' }
+  pl: { open: '„', close: '”' },
+  ro: { open: '„', close: '”' },
+  ru: { open: '«', close: '»' }
 };
 function writingLanguage() {
   return (library && library.spellLanguage) || NeoI18n.getLocale();
@@ -2240,6 +2424,25 @@ function writingLanguage() {
 function quoteStyle() {
   const code = writingLanguage();
   return QUOTE_STYLES[code] || QUOTE_STYLES[code.split('-')[0]] || QUOTE_STYLES.en;
+}
+// …unless the book has settled on guillemets its language doesn't use:
+// German novels often set »…« where the language says „…“, Swiss writing
+// «…». Whichever mark opens the most quotes wins — in this chapter, or in
+// the book when the chapter has none yet — so a » typed by hand once is
+// enough to carry on in that style.
+function bookQuotes(el) {
+  const q = quoteStyle();
+  const opens = (text) => {
+    const n = (re) => (text.match(re) || []).length;
+    const own = q.open.trim();
+    return { '»': n(/»(?=[\p{L}\p{N}])/gu), '«': own === '«' ? 0 : n(/«(?=[\p{L}\p{N}])/gu), own: n(new RegExp(own + '\\s?(?=[\\p{L}\\p{N}])', 'gu')) };
+  };
+  const body = el && el.closest ? el.closest('.chapter-body') : null;
+  let c = opens(body ? body.textContent : '');
+  if (!c['»'] && !c['«'] && !c.own && book) c = opens(book.chapterOrder.map((id) => chapterHTML[id] || '').join(' '));
+  if (c['»'] > c.own && c['»'] >= c['«']) return { open: '»', close: '«' };
+  if (c['«'] > c.own && c['«'] > c['»']) return { open: '«', close: '»' };
+  return q;
 }
 
 // French typographic rules apply when the book is spellchecked in French,
@@ -2362,32 +2565,18 @@ async function deleteChapterQuiet(chId) {
   renderStickies();
 }
 
-// opts.quiet: leave the page where it is unless the caret would be out of
-// sight (a backspace-merge, a darling restored) — otherwise the chapter's
-// head comes to the top of the window, as a jump from the chapter list should
-function focusChapter(chId, opts = {}) {
+function focusChapter(chId) {
   const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
   if (!body) return;
-  body.focus({ preventScroll: true });
-  // caret at the very end — inside the last paragraph, not floating at the
-  // container level, so captureCaret/restoreCaret (which resetNativeUndo
-  // runs right after) keep it there instead of snapping to the chapter top
+  body.focus();
+  // caret at the very end
   const range = document.createRange();
-  const last = [...body.querySelectorAll('p')].pop();
-  if (last) range.selectNodeContents(last);
-  else range.selectNodeContents(body);
+  range.selectNodeContents(body);
   range.collapse(false);
   const sel = window.getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
-  if (opts.quiet) {
-    const target = last || body;
-    const r = target.getBoundingClientRect();
-    const sr = $('#paper-scroll').getBoundingClientRect();
-    if (r.bottom < sr.top + 40 || r.bottom > sr.bottom - 40) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  } else {
-    body.closest('.chapter').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  body.closest('.chapter').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
   currentChapterId = chId;
   highlightNav();
 }
@@ -2450,7 +2639,7 @@ function returnToMark(sid) {
   const scroller = $('#paper-scroll');
   const r = mark.getBoundingClientRect();
   const sr = scroller.getBoundingClientRect();
-  if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) mark.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
   if (!bodyEl) return;
   currentChapterId = bodyEl.closest('.chapter').dataset.id;
   bodyEl.focus({ preventScroll: true });
@@ -2486,8 +2675,7 @@ function renderStickies() {
     ta.value = s.text;
     ta.addEventListener('input', () => {
       s.text = ta.value;
-      clearTimeout(saveTimers.stickies);
-      saveTimers.stickies = setTimeout(() => window.neo.writeJSON(book.id, 'stickies', stickies), 600);
+      scheduleStickiesSave();
     });
     ta.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || e.shiftKey) return; // Shift+Enter: another line in the note
@@ -2501,6 +2689,27 @@ function renderStickies() {
     el.querySelector('.s-done').onclick = () => resolveSticky(s.id);
     wrap.appendChild(el);
   }
+}
+
+// A note is saved a moment after the last keystroke. The save belongs to the
+// book it was typed in: leaving the book (Esc to the shelf) writes it at once
+// instead of letting the timer find no book, which lost the note's text.
+function scheduleStickiesSave() {
+  if (!book) return;
+  const bookId = book.id;
+  const list = stickies;
+  clearTimeout(saveTimers.stickies);
+  saveTimers.stickies = setTimeout(() => {
+    delete saveTimers.stickies;
+    window.neo.writeJSON(bookId, 'stickies', list);
+  }, 600);
+}
+
+function flushStickiesSave() {
+  if (!saveTimers.stickies || !book) return;
+  clearTimeout(saveTimers.stickies);
+  delete saveTimers.stickies;
+  window.neo.writeJSON(book.id, 'stickies', stickies);
 }
 
 // Pair every mark in the manuscript with a note: pasted duplicates get their
@@ -2585,6 +2794,9 @@ function renderNav() {
   if (chapterDragActive) { navRefreshPending = true; return; }
   navRefreshPending = false;
   const list = $('#nav-list');
+  // a keyboard user on a chapter row keeps their place through the rebuild
+  const focusedRow = document.activeElement && document.activeElement.classList.contains('n-row') &&
+    document.activeElement.matches(':focus-visible') ? document.activeElement.closest('.nav-item').dataset.id : null;
   list.innerHTML = '';
   book.chapterNotes = book.chapterNotes || {};
   book.chapterOrder.forEach((chId, i) => {
@@ -2617,6 +2829,9 @@ function renderNav() {
     note.contentEditable = 'true';
     note.spellcheck = false;
     note.textContent = book.chapterNotes[chId] || '';
+    note.setAttribute('role', 'textbox');
+    note.setAttribute('aria-label', t('Outline note'));
+    note.setAttribute('aria-placeholder', t('What happens here…'));
     note.addEventListener('click', (e) => e.stopPropagation());
     note.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); note.blur(); }
@@ -2632,7 +2847,14 @@ function renderNav() {
       switchTab('manuscript');
       focusChapter(chId);
     };
+    // from the keyboard, the row is the chapter's button (F6 reaches the pane)
+    pressable(rowEl, [
+      item.querySelector('.n-label').textContent,
+      t('{n} words', { n: words }),
+      flagged ? t('Unresolved placeholder') : ''
+    ].filter(Boolean).join(', '));
     list.appendChild(item);
+    if (chId === focusedRow) rowEl.focus({ preventScroll: true });
   });
 }
 
@@ -2778,6 +3000,7 @@ $('#side-pin').onclick = () => {
   const pinned = pane.dataset.pinned === '1';
   pane.dataset.pinned = pinned ? '0' : '1';
   $('#side-pin').classList.toggle('pinned', !pinned);
+  $('#side-pin').setAttribute('aria-pressed', !pinned ? 'true' : 'false');
   $('#editor-view').classList.toggle('side-pinned', !pinned);
   if (!pinned) pane.classList.add('open');
 };
@@ -2799,7 +3022,7 @@ $$('.tab').forEach((tab) => {
     // Renamed tabs become the default for future books
     library.tabDefaults = library.tabDefaults || {};
     library.tabDefaults[kind] = name;
-    window.neo.writeLibrary(library);
+    writeLibrary(library);
   });
 });
 
@@ -3018,7 +3241,10 @@ function switchTab(name) {
       : { scroll: scroller.scrollTop };
   }
   currentTab = name;
-  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  $$('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.tab === name);
+    t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false');
+  });
   if (spellOn) setTimeout(scanSpellingHere, 0);
   const paper = $('#paper');
   const aux = $('#aux-paper');
@@ -3031,11 +3257,14 @@ function switchTab(name) {
   // stash whatever aux content was open
   flushAux();
 
+  // an open Find follows the tab (Notes arrives from disk, so it looks later)
+  const findHere = () => { if (!$('#searchbar').hidden) runSearch(); };
   if (name === 'manuscript') {
     paper.hidden = false;
     aux.hidden = true;
     if (back && back.caret) restoreCaret(back.caret); // brings the scroll along
     else returnTo();
+    findHere();
     return;
   }
   paper.hidden = true;
@@ -3049,12 +3278,14 @@ function switchTab(name) {
     dList.hidden = false;
     renderDarlings();
     returnTo();
+    findHere();
   } else if (name === 'outline') {
     $('#aux-title').textContent = tabName('outline');
     oList.hidden = false;
     if (book.chapterOrder.length === 0) createChapterAt(0);
     renderOutline();
     returnTo();
+    findHere();
   } else {
     $('#aux-title').textContent = tabName(name);
     auxEditor.hidden = false;
@@ -3063,6 +3294,7 @@ function switchTab(name) {
       auxEditor.innerHTML = html || '';
       auxEditor.focus({ preventScroll: true });
       returnTo();
+      findHere();
     });
   }
 }
@@ -3411,7 +3643,7 @@ async function restoreDarling(id) {
         syncChapter(body, d.chapterId);
         darlings = darlings.filter((x) => x.id !== id);
         await window.neo.writeJSON(book.id, 'darlings', darlings);
-        scrollTo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        scrollTo.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
         toast(t('Darling restored to its original spot'));
         return;
       }
@@ -3430,7 +3662,7 @@ async function restoreDarling(id) {
   scheduleChapterSave(chId);
   darlings = darlings.filter((x) => x.id !== id);
   await window.neo.writeJSON(book.id, 'darlings', darlings);
-  focusChapter(chId, { quiet: true });
+  focusChapter(chId);
   toast(t('Original spot is gone — restored to the end of {label}', { label: d.chapterLabel || t('the manuscript') }));
 }
 
@@ -3568,14 +3800,27 @@ $('#paper-scroll').addEventListener('scroll', () => {
 function persistChapter(chId, html) {
   if (!book) return Promise.resolve(false);
   if (html === undefined) html = chapterHTML[chId] || '';
+  const before = savedHTML[chId];
   savedHTML[chId] = html;
-  return window.neo.writeChapter(book.id, chId, html);
+  writing[chId] = (writing[chId] || 0) + 1;
+  return new Promise((resolve) => resolve(window.neo.writeChapter(book.id, chId, html))).catch((err) => {
+    // It never reached the disk. Book it as unsaved again, so the next flush
+    // tries once more, and so a look at the disk can't take the old file
+    // for news and put it back on the page.
+    if (savedHTML[chId] === html) savedHTML[chId] = before;
+    throw err;
+  }).finally(() => { writing[chId]--; });
 }
 
 function scheduleChapterSave(chId) {
   clearTimeout(saveTimers[chId]);
+  const bookId = book && book.id;
   saveTimers[chId] = setTimeout(() => {
     if (!book) return; // the book closed before the timer fired; flushAllSaves already wrote it
+    // another book is open, or the chapter was deleted or merged into the one
+    // above while this save waited: its words are already where they belong,
+    // and writing now would only leave an empty stray file in chapters/
+    if (book.id !== bookId || !book.chapterOrder.includes(chId)) return;
     persistChapter(chId);
   }, 800);
 }
@@ -3603,7 +3848,7 @@ function scheduleMetaSave() {
 async function saveMeta() {
   if (!book) return;
   const sig = metaSig(book);
-  const stamp = await window.neo.writeBookMeta(book.id, book);
+  const stamp = await writeBookMeta(book.id, book);
   if (book && typeof stamp === 'string') book.modified = stamp;
   savedMetaSig = sig;
 }
@@ -3621,6 +3866,7 @@ function flushAllSaves() {
     }
   }
   flushAux();
+  flushStickiesSave();
   if (moved || metaSig(book) !== savedMetaSig) saveMeta();
 }
 
@@ -3634,14 +3880,35 @@ function flushAllSaves() {
 /*  nothing is ever lost quietly.                                      */
 /* ================================================================== */
 
+// True when the disk copy of a chapter has no word the page lacks, but the
+// page has words it lacks: an older copy, not an edit made somewhere else.
+function onlyDrops(page, disk) {
+  const bag = (html) => {
+    const m = new Map();
+    for (const w of String(html || '').replace(/<[^>]*>/g, ' ').split(/\s+/)) if (w) m.set(w, (m.get(w) || 0) + 1);
+    return m;
+  };
+  const here = bag(page);
+  const there = bag(disk);
+  for (const [w, n] of there) if (n > (here.get(w) || 0)) return false;
+  for (const [w, n] of here) if (n > (there.get(w) || 0)) return true;
+  return false;
+}
+
 let refreshing = false;
 async function refreshFromDisk() {
   if (refreshing) return;
   refreshing = true;
+  bookMetaCache.clear(); // whatever another device wrote, the next redraw reads
   try {
     if (!book) {
       if (library && !$('#bookshelf-view').hidden) {
+        const gen = libraryGeneration;
         const lib = await window.neo.readLibrary();
+        // a change made here while that read was out (a new shelf, a rename)
+        // is newer than what came back: taking it would undo the change,
+        // and the next save would make that stick. Look again next time.
+        if (gen !== libraryGeneration || libraryWritesPending) return;
         if (lib && lib.firstRunDone && JSON.stringify(lib) !== JSON.stringify(library)) {
           library = lib;
           const shelf = $('#bookshelf-view');
@@ -3656,31 +3923,109 @@ async function refreshFromDisk() {
     if (window.neo.refreshBook) await window.neo.refreshBook(bookId);
     const meta = await window.neo.readBookMeta(bookId);
     if (!book || book.id !== bookId || !meta) return;
-    const localDirty = book.chapterOrder.some((c) => chapterHTML[c] !== savedHTML[c]) ||
-      metaSig(book) !== savedMetaSig;
-    if (metaSig(meta) !== savedMetaSig) {
-      if (localDirty) return; // both sides restructured; ours stands, next save wins
-      // the other device added, renamed or moved chapters: reopen in place
-      const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
-      const tab = currentTab;
-      await openBook(bookId);
-      if (tab !== 'manuscript') switchTab(tab);
-      requestAnimationFrame(() => {
-        if (pos.chapterId && book && book.chapterOrder.includes(pos.chapterId)) currentChapterId = pos.chapterId;
-        $('#paper-scroll').scrollTop = pos.scroll;
-        highlightNav();
+
+    // First read everything that changed; the page is left alone until it is
+    // all in. (Deciding chapter by chapter between reads let a keystroke land
+    // on a page that no longer matched what NEO held, and reopening the book
+    // for a new book.json dropped whatever was typed while it loaded.)
+    const theirs = metaSig(meta) !== savedMetaSig && Array.isArray(meta.chapterOrder);
+    const sigHere = metaSig(book);
+    const mine = sigHere !== savedMetaSig; // restructured here too, not saved yet
+    const incoming = {}; // chapters new to this device
+    let side = null;
+    if (theirs) {
+      for (const chId of meta.chapterOrder) {
+        if (chapterHTML[chId] !== undefined) continue;
+        incoming[chId] = await window.neo.readChapter(bookId, chId);
+        if (!book || book.id !== bookId) return;
+      }
+      side = {
+        stickies: await window.neo.readJSON(bookId, 'stickies', stickies),
+        darlings: await window.neo.readJSON(bookId, 'darlings', darlings)
+      };
+    }
+    // file times first, so only chapters that changed on disk are re-read
+    // (a whole novel crossing the bridge every half minute is a hiccup)
+    let stamps = null;
+    if (window.neo.chapterStamps) {
+      try { stamps = await window.neo.chapterStamps(bookId); } catch { stamps = null; }
+    }
+    const fresh = [];
+    for (const chId of [...book.chapterOrder]) {
+      if (writing[chId]) continue; // a save of ours is on its way: the file is ours, not news
+      const st = stamps ? stamps[chId] : undefined;
+      if (st !== undefined && st === diskStamps[chId]) continue;
+      const before = savedHTML[chId];
+      const disk = await window.neo.readChapter(bookId, chId);
+      if (!book || book.id !== bookId) return;
+      fresh.push({ chId, st, before, disk });
+    }
+    if (!book || book.id !== bookId) return;
+
+    // Then decide it all in one go: nothing waits from here to the page.
+    let restructured = false;
+    if (theirs && metaSig(book) === sigHere) {
+      // The other device added, renamed or moved chapters. Whichever
+      // book.json stands, no chapter holding words is dropped: theirs keeps
+      // the chapters with unsaved words here, and ours (when this device
+      // restructured too and hasn't saved yet) takes in the chapters they wrote.
+      const order = [...(mine ? book.chapterOrder : meta.chapterOrder)];
+      const other = mine ? meta.chapterOrder : book.chapterOrder;
+      other.forEach((chId, i) => {
+        if (order.includes(chId)) return;
+        if (mine ? !/[^\s]/.test(String(incoming[chId] || '').replace(/<[^>]*>/g, '')) : chapterHTML[chId] === savedHTML[chId]) return;
+        const prev = other.slice(0, i).reverse().find((c) => order.includes(c));
+        order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, chId);
       });
-      toast(t('Updated from your other device'));
-      return;
+      if (!mine || order.length !== book.chapterOrder.length) {
+        for (const chId of order) {
+          if (!(chId in incoming)) continue;
+          chapterHTML[chId] = incoming[chId];
+          savedHTML[chId] = incoming[chId];
+        }
+        if (mine) {
+          book.chapterOrder = order;
+        } else {
+          book = { ...meta, chapterOrder: order, lastPosition: book.lastPosition };
+          savedMetaSig = metaSig(meta);
+          stickies = side.stickies;
+          darlings = side.darlings;
+        }
+        if (metaSig(book) !== savedMetaSig) scheduleMetaSave();
+        if (!book.chapterOrder.includes(currentChapterId)) currentChapterId = null;
+        undoStack = []; // snapshots of the old structure must not replay over the new one
+        restructured = true;
+      }
     }
     let adopted = 0;
     let conflicts = 0;
-    for (const chId of [...book.chapterOrder]) {
-      const disk = await window.neo.readChapter(bookId, chId);
-      if (!book || book.id !== bookId) return;
-      if (typeof disk !== 'string' || disk === savedHTML[chId]) continue;
+    const replaced = []; // page text a disk copy would otherwise have taken away
+    for (const { chId, st, before, disk } of fresh) {
+      if (!book.chapterOrder.includes(chId)) continue;
+      // A save of ours crossed this read, so what came back can be older
+      // than the page. Taking it put the old text back on the page, and the
+      // next save made that stick. Look again next time.
+      if (writing[chId] || savedHTML[chId] !== before) continue;
+      if (typeof disk !== 'string') continue;
       if (disk === '' && savedHTML[chId]) continue; // unreadable or still downloading: not a change
+      if (stamps) diskStamps[chId] = st; // seen; a file not read stays on the list
+      if (disk === savedHTML[chId]) continue;
       if (chapterHTML[chId] === savedHTML[chId]) {
+        // A copy with nothing new in it, only fewer words, is an older copy
+        // coming back (or text cut on the other device): the page's version
+        // goes to Darlings instead of nowhere.
+        if (onlyDrops(chapterHTML[chId], disk)) {
+          const holder = document.createElement('div');
+          holder.innerHTML = chapterHTML[chId];
+          replaced.push({
+            id: 'd-' + Date.now().toString(36) + replaced.length,
+            html: chapterHTML[chId],
+            text: [...holder.children].map((p) => p.textContent).join('\n\n').slice(0, 2000),
+            chapterId: chId,
+            chapterLabel: t('Chapter {n}', { n: book.chapterOrder.indexOf(chId) + 1 }),
+            date: new Date().toISOString()
+          });
+        }
         chapterHTML[chId] = disk;
         savedHTML[chId] = disk;
         wordCache[chId] = null;
@@ -3700,15 +4045,31 @@ async function refreshFromDisk() {
         conflicts++;
       }
     }
-    if (adopted || conflicts) {
+    if (restructured || adopted || conflicts) {
       const caret = captureCaret();
       const keepScroll = $('#paper-scroll').scrollTop;
       renderChapters();
       $('#paper-scroll').scrollTop = keepScroll;
       if (caret) restoreCaret(caret);
+      if (restructured) {
+        const show = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+        show($('#tp-title'), isUntitled(book.title) ? '' : book.title);
+        show($('#tp-subtitle'), book.subtitle || '');
+        show($('#tp-author'), book.author || t('Anonymous'));
+        $$('.tab[data-tab="notes"]')[0].textContent = tabName('notes');
+        $$('.tab[data-tab="outline"]')[0].textContent = tabName('outline');
+        renderStickies();
+        if (currentTab === 'outline') renderOutline();
+      }
       updateCounters();
       scheduleNavRefresh();
+      if (replaced.length) {
+        darlings.unshift(...replaced);
+        window.neo.writeJSON(bookId, 'darlings', darlings);
+      }
+      if (currentTab === 'darlings' && (restructured || replaced.length)) renderDarlings();
       if (conflicts) toast(t('This chapter also changed on another device. That version is saved as the chapter after it.'), 8000);
+      else if (replaced.length) toast(t('Updated from your other device — the text it replaced is in Darlings'), 8000);
       else toast(t('Updated from your other device'));
     }
   } catch (err) {
@@ -3946,7 +4307,6 @@ let searchState = { matches: [], idx: -1, query: '' };
 
 function openSearch() {
   if ($('#editor-view').hidden || !book) { toast(t('Open a book first')); return; }
-  switchTab('manuscript');
   const sel = window.getSelection();
   const preset = sel && !sel.isCollapsed ? sel.toString().slice(0, 80).trim() : '';
   $('#searchbar').hidden = false;
@@ -3977,19 +4337,28 @@ function paintHighlights() {
   CSS.highlights.set('neo-search-current', cur);
 }
 
-// Scan the WHOLE book, first chapter to last, every time.
-// Matches are highlighted, not selected.
+// Find searches the tab you're in: the whole manuscript, first chapter to
+// last, or the Notes page, the outline's lines, the Darlings. Replace stays
+// with the manuscript, where ⌘Z can take a Replace All back.
+function searchRoots() {
+  if (currentTab === 'manuscript') return book.chapterOrder.map((chId) => document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`));
+  if (currentTab === 'outline') return $$('#outline-list .ol-text');
+  if (currentTab === 'darlings') return $$('#darlings-list .darling > :first-child');
+  return [$('#aux-editor')];
+}
+
+// Scan the whole tab every time. Matches are highlighted, not selected.
 function runSearch() {
   const q = $('#search-input').value;
-  searchState = { matches: [], idx: -1, query: q };
+  searchState = { matches: [], idx: -1, query: q, tab: currentTab };
+  $('#searchbar').classList.toggle('find-only', currentTab !== 'manuscript');
   if (!q) {
     $('#search-count').textContent = '';
     paintHighlights();
     return;
   }
   const ql = q.toLowerCase();
-  for (const chId of book.chapterOrder) {
-    const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  for (const body of searchRoots()) {
     if (!body) continue;
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
     let node;
@@ -4024,10 +4393,11 @@ function gotoMatch(i) {
 }
 
 function freshSearchIfStale() {
-  if (searchState.query !== $('#search-input').value) runSearch();
+  if (searchState.query !== $('#search-input').value || searchState.tab !== currentTab) runSearch();
 }
 
 function replaceCurrent() {
+  if (currentTab !== 'manuscript') return;
   freshSearchIfStale();
   if (!searchState.matches.length) { toast(t('No matches')); return; }
   if (searchState.idx < 0) searchState.idx = 0; // start from the very first match
@@ -4051,7 +4421,7 @@ function replaceCurrent() {
 // Every chapter, front to back
 function replaceAllMatches() {
   const q = $('#search-input').value;
-  if (!q) return;
+  if (!q || currentTab !== 'manuscript') return;
   snapshotStructure('replace all');
   const rep = $('#replace-input').value;
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -4093,7 +4463,7 @@ $('#search-input').addEventListener('keydown', (e) => {
       r.collapse(false);
       sel.removeAllRanges();
       sel.addRange(r);
-      const body = m.range.startContainer.parentElement.closest('.chapter-body');
+      const body = m.range.startContainer.parentElement.closest('[contenteditable="true"]');
       if (body) body.focus();
     }
   }
@@ -4151,11 +4521,11 @@ async function addImportedBooks(results, shelf) {
       for (const p of ch.paras) words += countWords(p.text || '');
     }
     meta.wordCount = words;
-    await window.neo.writeBookMeta(meta.id, meta);
+    await writeBookMeta(meta.id, meta);
     shelf.bookIds.push(meta.id);
     ok++;
   }
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   if (!$('#bookshelf-view').hidden) renderShelves();
   if (ok) toast(t('{n} books imported onto “{shelf}” — chapters and scene breaks detected', { n: ok, shelf: shelf.name }), 6000);
 }
@@ -4275,13 +4645,13 @@ function toggleSpellcheck() {
 const SPELL_LANGUAGE_NAMES = {
   'en-US': t('US English'), 'en-GB': t('UK English'), 'en-CA': t('Canadian English'),
   'en-AU': t('Australian English'), fr: t('French'), es: t('Spanish'), de: t('German'),
-  nl: t('Dutch'), pl: t('Polish')
+  nl: t('Dutch'), pl: t('Polish'), ro: t('Romanian'), ru: t('Russian')
 };
 async function changeSpellLanguage(code) {
   const ok = await window.neo.setSpellLanguage(code);
   if (!ok) { toast(t('That dictionary would not load')); return; }
   library.spellLanguage = code;
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   spellCache.clear();
   if (spellOn) {
     spellScanned = new Set();
@@ -4326,8 +4696,11 @@ document.addEventListener('contextmenu', async (e) => {
     learn: async () => {
       library.customWords = library.customWords || [];
       if (!library.customWords.includes(word)) library.customWords.push(word);
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
       await window.neo.spellLearn(word);
+      // Learning also accepts equivalent Unicode spellings. Recheck cached
+      // failures so those variants lose their underlines in every editor.
+      spellCache.clear();
       spellCache.set(word, true);
       for (const k of [...spellScanned]) spellScanEl(spellElFor(k), k);
     }
@@ -4373,15 +4746,32 @@ function showSpellMenu(x, y, word, suggestions, actions) {
 let typewriterEnabled = false;
 // The page needs empty room beneath its last line, or the caret can't be held
 // at the centre once the end of the draft scrolls into view (body.typewriter
-// deepens #paper's bottom margin; see styles.css).
+// deepens #paper's bottom margin; see styles.css). Only as much as the last
+// page's own blank paper doesn't already give: a page that is mostly blank
+// needs none, and a fixed 60vh left an empty scroll under it from line one.
 function applyTypewriter() {
   document.body.classList.toggle('typewriter', typewriterEnabled);
   if (window.neo.typewriterState) window.neo.typewriterState(typewriterEnabled); // the Format menu's tick
+  typewriterRoom();
 }
+function typewriterRoom() {
+  const paper = $('#paper');
+  const bodies = $$('#chapters .chapter-body');
+  const last = bodies[bodies.length - 1];
+  if (!typewriterEnabled || !last || paper.hidden) return;
+  const line = parseFloat(getComputedStyle(last).lineHeight) || 30;
+  // the last line must be able to rise to the writing height (45% of the
+  // window, as in the selectionchange handler below)
+  const below = paper.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom;
+  const room = $('#paper-scroll').clientHeight - window.innerHeight * 0.45 - below + line;
+  paper.style.setProperty('--typewriter-room', Math.max(120, Math.ceil(room)) + 'px');
+}
+new ResizeObserver(() => typewriterRoom()).observe($('#chapters'));
+window.addEventListener('resize', typewriterRoom);
 function toggleTypewriter() {
   typewriterEnabled = !typewriterEnabled;
   library.typewriter = typewriterEnabled;
-  window.neo.writeLibrary(library);
+  writeLibrary(library);
   applyTypewriter();
   toast(typewriterEnabled ? t('Typewriter scrolling ON — your line stays centered') : t('Typewriter scrolling off'));
 }
@@ -4415,7 +4805,7 @@ document.addEventListener('selectionchange', () => {
       // a band of about three lines around the writing height
       if (Math.abs(diff) <= lineHeight * 1.5) return;
       const scroller = $('#paper-scroll');
-      scroller.scrollTo({ top: scroller.scrollTop + diff, behavior: 'smooth' });
+      scroller.scrollTo({ top: scroller.scrollTop + diff, behavior: scrollBehavior() });
     } catch { /* selection mid-mutation; skip this frame */ }
   });
 });
@@ -4430,7 +4820,14 @@ const FOCUS_LEVELS = ['off', 'paragraph', 'sentence'];
 const FOCUS_LABELS = { off: tk('Focus mode off'), sentence: tk('Focus: sentence'), paragraph: tk('Focus: paragraph') };
 let focusLevel = 'off';
 
+// the View menu's ticks (focus level, page, brighter interface) follow the page
+function reportViewState() {
+  if (!window.neo.viewState || !library) return;
+  window.neo.viewState({ focus: focusLevel, pageTheme: library.pageTheme || 'night', uiBright: document.body.classList.contains('bright') });
+}
+
 function applyFocus() {
+  reportViewState();
   document.body.classList.toggle('focus-mode', focusLevel !== 'off');
   if (focusLevel === 'off') {
     if (window.CSS && CSS.highlights) CSS.highlights.delete('neo-focus');
@@ -4440,7 +4837,7 @@ function setFocus(level) {
   if (!FOCUS_LEVELS.includes(level)) return;
   focusLevel = level;
   library.focus = level;
-  window.neo.writeLibrary(library);
+  writeLibrary(library);
   applyFocus();
   toast(t(FOCUS_LABELS[level] || ''));
 }
@@ -4578,14 +4975,14 @@ function statsChartSvg() {
   const goalLine = goal
     ? `<line x1="${PAD}" x2="${W - PAD}" y1="${(H - PAD - (goal / maxC) * (H - PAD * 2 - 20)).toFixed(1)}" y2="${(H - PAD - (goal / maxC) * (H - PAD * 2 - 20)).toFixed(1)}" stroke="#c9a86a" stroke-dasharray="5,4" stroke-width="1" opacity="0.7"/>`
     : '';
-  return `<svg id="stats-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg id="stats-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escHtml(t('Words written over the last 30 days')).replace(/"/g, '&quot;')}">
     ${bars}
     <path d="${line}" fill="none" stroke="#c9a86a" stroke-width="2"/>
     ${goalLine}
   </svg>
-  <div style="display:flex;justify-content:space-between;font-size:10px;color:#666;padding:2px 4px">
+  <div class="stats-legend">
     <span>${t('30 days ago')}</span>
-    <span style="color:#3d8a6a">▮ ${t('daily words')}</span>
+    <span class="sl-daily">▮ ${t('daily words')}</span>
     <span style="color:var(--accent)">— ${t('total')}${goal ? ' · - - ' + t('goal') : ''}</span>
     <span>${t('today')}</span>
   </div>`;
@@ -4686,7 +5083,7 @@ function openCoverArt() {
       quality: bd.querySelector('#ca-quality').value,
       models
     };
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     done();
     if (!(await window.neo.hasSecret(id))) toast(t('Saved. Add a {name} key to start painting.', { name: p.name }), 5000);
   };
@@ -4694,7 +5091,8 @@ function openCoverArt() {
   key.focus();
 }
 
-// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr
+// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr,
+// or 13:00 where the language's hour is a bare number
 function hourLabel(h) {
   if (h === 0) return t('midnight');
   const loc = NeoI18n.getLocale();
@@ -4702,7 +5100,9 @@ function hourLabel(h) {
     if (h === 12) return t('noon');
     return h < 12 ? t('{h} am', { h: String(h) }) : t('{h} pm', { h: String(h - 12) });
   }
-  return new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(new Date(2000, 0, 1, h));
+  const at = new Date(2000, 0, 1, h);
+  const hour = new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(at);
+  return /^\d+$/.test(hour) ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(at) : hour;
 }
 
 function openStats() {
@@ -4750,7 +5150,7 @@ function openStats() {
       book.wordGoal = parseInt(bd.querySelector('#st-book').value, 10) || 0;
       scheduleMetaSave();
     }
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     bd.remove();
     if (hasBook) updateCounters();
   };
@@ -4761,7 +5161,6 @@ function openStats() {
   bd.tabIndex = -1;
   bd.focus();
   bd.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
-  bd.addEventListener('mousedown', (e) => { if (e.target === bd) close(); });
   if (hasBook) {
     bd.querySelector('#st-sprint-btn').onclick = () => {
       if (sprint && !sprint.done) {
@@ -4816,10 +5215,18 @@ function applyFonts() {
   }
   document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
-  document.body.classList.toggle('bright', !!library.uiBright);
+  // the system's "Increase contrast" turns it on too, until the writer
+  // chooses in the View menu
+  document.body.classList.toggle('bright', library.uiBright === undefined ? SYSTEM_CONTRAST.matches : !!library.uiBright);
+  reportViewState();
+  // View → Interface Size: everything but the page
+  const uiZoom = [1, 1.25, 1.5, 2].includes(library.uiZoom) ? library.uiZoom : 1;
+  document.documentElement.style.setProperty('--ui-zoom', uiZoom);
+  document.documentElement.classList.toggle('ui-zoomed', uiZoom > 1);
+  if (window.neo.uiZoomState) window.neo.uiZoomState(uiZoom);
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
-  const zoom = Math.min(1.6, Math.max(0.75, library.pageZoom || 1));
+  const zoom = Math.min(3, Math.max(0.75, library.pageZoom || 1));
   document.documentElement.style.setProperty('--page-zoom', zoom);
   updateZoomDisplay();
 }
@@ -4899,13 +5306,15 @@ function updateZoomDisplay() {
   if (el) el.textContent = Math.round((library.pageZoom || 1) * 100) + '%';
 }
 function setPageZoom(next) {
-  next = Math.min(1.6, Math.max(0.75, next));
+  // up to 300%: on a large monitor 160% still read small. The page itself
+  // never grows past the window (max-width in styles.css), only the type does.
+  next = Math.min(3, Math.max(0.75, next));
   if (next === (library.pageZoom || 1)) return;
   library.pageZoom = next;
   document.documentElement.style.setProperty('--page-zoom', next);
   updateZoomDisplay();
   clearTimeout(zoomSaveTimer);
-  zoomSaveTimer = setTimeout(() => { window.neo.writeLibrary(library); }, 600);
+  zoomSaveTimer = setTimeout(() => { writeLibrary(library); }, 600);
 }
 $('#editor-view').addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
@@ -4994,6 +5403,7 @@ function shortcutSections() {
       [K('⌘⇧O', 'Ctrl+Shift+O'), tk('Cycle focus mode'), tk('Off → paragraph → sentence → off.')],
       [K('⌘M', 'Ctrl+M'), tk('Minimize window')],
       [K('⌘W', 'Ctrl+W'), tk('Close window')],
+      [['F6', K('⌃Tab', 'Ctrl+Tab')], tk('Move between the page, the chapters, the notes and the bottom bar'), tk('Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.')],
       ...(IS_MAC ? [
         ['⌘H', tk('Hide NEO')],
         ['⌘⌥H', tk('Hide other apps')]
@@ -5019,7 +5429,7 @@ function showHelp() {
         <h2 id="shortcuts-title">${t('Keyboard shortcuts')}</h2>
       </header>
       <div class="shortcuts-content" tabindex="0" role="region" aria-label="${t('Shortcut reference')}"></div>
-      <footer class="shortcuts-footer">
+      <footer class="shortcuts-footer" role="none">
         <span>${t(K(tk('⌘ Command · ⇧ Shift · ⌥ Option · ⌃ Control'), tk('Ctrl Control · Shift · Alt')))}</span>
         <button class="m-ok btn-gold">${t('Done')}</button>
       </footer>
@@ -5047,7 +5457,6 @@ function showHelp() {
     }
   };
   bd.querySelector('.m-ok').onclick = close;
-  bd.addEventListener('mousedown', (e) => { if (e.target === bd) close(); });
   const handleKeyDown = (e) => {
     e.stopPropagation(); // The editor must not handle keys while reading help.
     if (e.key === 'Escape') { e.preventDefault(); close(); }
@@ -5067,8 +5476,11 @@ function showHelp() {
 /*  EXPORT + EMAIL                                                     */
 /* ================================================================== */
 
+// letters of every script stay (a Russian title keeps its name), only
+// punctuation goes
 function safeName(s) {
-  return (s || t('Untitled')).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  const clean = (x) => x.replace(/[^\p{L}\p{M}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-');
+  return clean(s || '') || clean(t('Untitled'));
 }
 
 // Every paragraph is rebuilt from its text runs, so exports carry only
@@ -5089,7 +5501,7 @@ function parasFromHtml(html) {
     const sceneBreak = p.classList.contains('scene-break');
     const poetry = p.classList.contains('poetry');
     const align = (p.style && p.style.textAlign) || '';
-    const runs = paraRuns(p.innerHTML).filter((r) => r.text);
+    const runs = paraRuns(p.innerHTML, true).filter((r) => r.text);
     const inner = runs.map((r) => {
       let t = escHtml(r.text);
       if (r.i) t = '<i>' + t + '</i>';
@@ -5184,6 +5596,40 @@ function buildMd(data) {
   return out;
 }
 
+// The Web Page and PDF read in the page's own typeface. A face NEO ships
+// (the @font-face rules in styles.css, the body fonts on Linux) travels
+// inside the file, so the PDF matches the page on any machine; a font the
+// computer has goes by name, with the same fallbacks as the page.
+const exportBodyFont = () => (getComputedStyle(document.documentElement).getPropertyValue('--body-font').trim() || 'Georgia, serif').replace(/[<>{};]/g, '');
+async function exportFontFaces(d) {
+  const family = exportBodyFont().split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const text = d.sections.map((ch) => ch.paras.map((p) => p.html).join('')).join('');
+  const italic = !!d.subtitle || /<i[\s>]/.test(text); // (the title is always bold)
+  const boldItalic = italic && /<b[\s>]/.test(text);
+  let css = '';
+  for (const sheet of document.styleSheets) {
+    let rules = [];
+    try { rules = [...sheet.cssRules]; } catch { continue; }
+    for (const r of rules) {
+      if (!(r instanceof CSSFontFaceRule)) continue;
+      if (r.style.getPropertyValue('font-family').replace(/["']/g, '').trim() !== family) continue;
+      const style = r.style.getPropertyValue('font-style') || 'normal';
+      const weight = r.style.getPropertyValue('font-weight') || '400';
+      if (style === 'italic' && !(parseInt(weight, 10) >= 600 ? boldItalic : italic)) continue;
+      const src = r.style.getPropertyValue('src').match(/url\(["']?([^"')]+)["']?\)\s*(format\([^)]*\))?/);
+      if (!src) continue;
+      try {
+        const bytes = new Uint8Array(await (await fetch(new URL(src[1], sheet.href || location.href))).arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const ext = src[1].split('.').pop().toLowerCase();
+        css += `@font-face { font-family: '${family}'; src: url(data:font/${ext};base64,${btoa(bin)}) ${src[2] || ''}; font-weight: ${weight}; font-style: ${style}; }\n`;
+      } catch { /* the name still stands, with its fallbacks */ }
+    }
+  }
+  return css;
+}
+
 function buildHtml(data, opts = {}) {
   const d = data || bookExportData();
   const total = d.sections.reduce((s, ch) => s + ch.paras.reduce((n, p) => n + countWords(p.text || ''), 0), 0);
@@ -5216,7 +5662,8 @@ function buildHtml(data, opts = {}) {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${escHtml(d.title)}</title>
 <style>
-  body { font-family: Georgia, serif; color: #1c1c1c; max-width: 620px; margin: 40px auto; line-height: 1.7; font-size: 13pt; }
+  ${opts.fonts || ''}
+  body { font-family: ${exportBodyFont()}; color: #1c1c1c; max-width: 620px; margin: 40px auto; line-height: 1.7; font-size: 13pt; }
   .coverpage { text-align: center; margin: 0 0 40px; page-break-after: always; }
   .coverpage img { display: block; margin: 0 auto; width: 100%; max-width: 620px; max-height: 95vh; object-fit: contain; }
   .titlepage { text-align: center; margin: 30vh 0 20vh; page-break-after: always; }
@@ -5251,9 +5698,12 @@ const escXml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-// Walk a paragraph's DOM and emit [{text, b, i}] so docx/epub get real bold/italic
-function paraRuns(pHtml) {
-  const holder = document.createElement('div');
+// Walk a paragraph's DOM and emit [{text, b, i}] so docx/epub get real bold/italic.
+// In the manuscript an italic inside an italic is emphasis in a poetry
+// paragraph (itself one italic), and it is set upright, the typesetter's
+// way (flip). Pasted HTML often doubles its italics for nothing; not there.
+function paraRuns(pHtml, flip) {
+  const holder = document.createElement('template'); // inert: nothing loads or runs
   holder.innerHTML = pHtml;
   const runs = [];
   const walk = (node, b, i) => {
@@ -5266,11 +5716,12 @@ function paraRuns(pHtml) {
           continue;
         }
         const tag = child.tagName;
-        walk(child, b || tag === 'B' || tag === 'STRONG', i || tag === 'I' || tag === 'EM');
+        const it = tag === 'I' || tag === 'EM';
+        walk(child, b || tag === 'B' || tag === 'STRONG', it ? (flip ? !i : true) : i);
       }
     }
   };
-  walk(holder, false, false);
+  walk(holder.content, false, false);
   return runs;
 }
 
@@ -5541,29 +5992,50 @@ async function exportShelfAnthology(shelf) {
   ]);
   if (!format) return;
   toast(t('Collecting the shelf…'));
-  const data = await shelfExportData(shelf, title || shelf.name);
-  if (!data.sections.length) { toast(t('No words found on this shelf yet')); return; }
-  const defaultName = safeName(data.title);
-  let payload;
-  if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
-  else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
-  else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data) }) };
-  const saved = await window.neo.exportSave(payload);
-  if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
+  try {
+    const data = await shelfExportData(shelf, title || shelf.name);
+    if (!data.sections.length) { toast(t('No words found on this shelf yet')); return; }
+    const defaultName = safeName(data.title);
+    let payload;
+    if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
+    else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
+    else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
+    const saved = await window.neo.exportSave(payload);
+    if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
+  } catch (err) {
+    window.neo.logError('export anthology: ' + (err && err.stack || err));
+    toast(t('Couldn’t export the anthology: {error}', { error: plainError(err) }), 8000);
+  }
+}
+
+// What went wrong, in the words a writer can use: Electron wraps a failure in
+// the main process as "Error invoking remote method 'export:save': Error: …"
+function plainError(err) {
+  return String((err && err.message) || err).replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, '');
 }
 
 async function doExport(format) {
   if (!book) { toast(t('Open a book first')); return; }
   flushAllSaves();
   const defaultName = safeName(book.title);
-  let payload;
-  if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries() };
-  else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
-  else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
-  else if (format === 'md') payload = { format, defaultName, content: buildMd() };
-  else payload = { format, defaultName, content: buildHtml(null, { cover: await exportCover(bookExportData()) }) };
-  const saved = await window.neo.exportSave(payload);
-  if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
+  try {
+    let payload;
+    if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries() };
+    else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
+    else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
+    else if (format === 'md') payload = { format, defaultName, content: buildMd() };
+    else {
+      const data = bookExportData();
+      payload = { format, defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
+    }
+    const saved = await window.neo.exportSave(payload);
+    if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
+  } catch (err) {
+    // An export that saves nothing must never be silent: name the failure,
+    // and put the stack in the error log for whatever bug report follows.
+    window.neo.logError('export ' + format + ': ' + (err && err.stack || err));
+    toast(t('Couldn’t export: {error}', { error: plainError(err) }), 8000);
+  }
 }
 
 function chooseEmailMethod() {
@@ -5598,7 +6070,7 @@ async function emailSettings() {
   if (addr === null) return false;
   if (addr) library.emailAddress = addr;
   library.emailMethod = await chooseEmailMethod();
-  await window.neo.writeLibrary(library);
+  await writeLibrary(library);
   toast(t('Email settings saved'));
   return true;
 }
@@ -5627,11 +6099,12 @@ async function doEmailDraft() {
       ? t('The PDF snapshot is in the Finder window NEO just opened — drag it into this email before sending.')
       : t('PDF snapshot attached.'));
   toast(t('Preparing your draft…'));
+  const snapshot = bookExportData();
   const res = await window.neo.emailDraft({
     to: library.emailAddress,
     subject,
     body,
-    html: buildHtml(null, { stamp: true }), // the email snapshot is a provenance record
+    html: buildHtml(snapshot, { stamp: true, fonts: await exportFontFaces(snapshot) }), // the email snapshot is a provenance record
     defaultName: safeName(book.title),
     method: library.emailMethod
   });
@@ -5641,26 +6114,104 @@ async function doEmailDraft() {
 }
 
 // Help → Check for Update…: on-demand release lookup, only ever runs on a click
-async function checkForUpdate() {
-  const res = await window.neo.checkForUpdate();
-  if (res.error) { toast(t('Couldn’t check for updates — try again later')); return; }
-  if (!res.hasUpdate) { toast(t('You’re on the latest version ({version})', { version: res.currentVersion })); return; }
+let updateDialog = null; // the Check for Update… window, while it's open
+
+function updateDialogBox(res) {
   const bd = document.createElement('div');
   bd.className = 'modal-backdrop';
   bd.innerHTML = `
-    <div class="modal" style="width:380px">
+    <div class="modal" style="width:400px">
       <h2 style="font-size:16px">${t('NEO {version} is available', { version: res.latestVersion })}</h2>
-      <p>${t('You have {version}.', { version: res.currentVersion })}</p>
+      <p class="up-text">${t('You have {version}.', { version: res.currentVersion })}</p>
+      <div class="up-bar" hidden><div class="up-fill"></div></div>
       <div style="text-align:right;margin-top:14px">
         <button class="m-cancel btn-quiet" style="margin-right:10px">${t('Later')}</button>
-        <button class="m-ok btn-gold">${t('View Release')}</button>
+        <button class="m-ok btn-gold"></button>
       </div>
     </div>`;
   document.body.appendChild(bd);
-  const close = () => bd.remove();
+  const close = () => { bd.remove(); if (updateDialog === bd) updateDialog = null; };
+  bd.close = close;
   bd.querySelector('.m-cancel').onclick = close;
-  bd.querySelector('.m-ok').onclick = () => { window.neo.openRelease(); close(); };
+  bd.tabIndex = -1;
+  bd.focus();
   bd.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+  return bd;
+}
+
+// one function draws every state of the dialog, so a message from the
+// updater can redraw it whenever it likes
+function updateDialogShow(state, info = {}) {
+  const bd = updateDialog;
+  if (!bd) return;
+  const text = bd.querySelector('.up-text');
+  const bar = bd.querySelector('.up-bar');
+  const fill = bd.querySelector('.up-fill');
+  const ok = bd.querySelector('.m-ok');
+  const later = bd.querySelector('.m-cancel');
+  const mb = (n) => (n / 1048576).toFixed(0);
+  later.hidden = false;
+  ok.hidden = false;
+  bar.hidden = true;
+  if (state === 'offer') {
+    text.textContent = t('You have {version}.', { version: info.currentVersion });
+    ok.textContent = t('Download');
+    ok.onclick = () => { updateDialogShow('starting'); window.neo.downloadUpdate(); };
+  } else if (state === 'starting') {
+    text.textContent = t('Downloading…');
+    bar.hidden = false;
+    fill.style.width = '0%';
+    ok.hidden = true;
+  } else if (state === 'downloading') {
+    const pct = Math.max(0, Math.min(100, info.percent || 0));
+    text.textContent = info.total
+      ? t('Downloading… {done} of {total} MB', { done: mb(info.transferred || 0), total: mb(info.total) })
+      : t('Downloading…');
+    bar.hidden = false;
+    fill.style.width = pct.toFixed(1) + '%';
+    ok.hidden = true;
+  } else if (state === 'ready') {
+    text.textContent = t('Downloaded. NEO will save your work and restart.');
+    ok.textContent = t('Restart to update');
+    ok.onclick = () => { flushAllSaves(); setTimeout(() => window.neo.installUpdate(), 300); };
+    ok.focus();
+  } else if (state === 'error') {
+    text.textContent = t('The update couldn’t be installed from here: {message}', { message: info.message || t('unknown error') })
+      + ' ' + t('You can download it from the release page instead.');
+    ok.textContent = t('View Release');
+    ok.onclick = () => { window.neo.openRelease(); bd.close(); };
+  } else if (state === 'release') {
+    text.textContent = t('You have {version}.', { version: info.currentVersion });
+    ok.textContent = t('View Release');
+    ok.onclick = () => { window.neo.openRelease(); bd.close(); };
+  }
+}
+
+async function checkForUpdate() {
+  if (updateDialog) { updateDialog.focus(); return; }
+  const res = await window.neo.checkForUpdate();
+  if (res.error) { toast(t('Couldn’t check for updates — try again later')); return; }
+  if (!res.hasUpdate) { toast(t('You’re on the latest version ({version})', { version: res.currentVersion })); return; }
+  updateDialog = updateDialogBox(res);
+  if (!res.canInstall) updateDialogShow('release', res);
+  else if (res.ready) updateDialogShow('ready', res);
+  else updateDialogShow('offer', res);
+}
+
+// messages from the updater in the main process
+function updateMessage(msg) {
+  if (msg.state === 'available') {
+    // the quiet startup look: one line, once per version
+    if (updateDialog) return;
+    try {
+      if (localStorage.getItem('neo-update-hinted') === msg.version) return;
+      localStorage.setItem('neo-update-hinted', msg.version);
+    } catch { /* fine */ }
+    toast(t('NEO {version} is available — Help → Check for Update… installs it', { version: msg.version }), 7000);
+    return;
+  }
+  if (!updateDialog) return; // nothing open to report to
+  updateDialogShow(msg.state, msg);
 }
 
 // Help → About NEO: the version, plainly
@@ -5685,14 +6236,18 @@ async function showAbout() {
 }
 
 window.neo.onMenu(async (msg) => {
+  // full screen and focus mode together hide the bottom bar until hovered
+  // (styles.css); the window says when it goes in and out, whatever is open
+  if (msg.type === 'fullScreen') { document.body.classList.toggle('full-screen', !!msg.value); return; }
   if ($('#keyboard-shortcuts') && msg.type !== 'help') return;
   if (msg.type === 'help') showHelp();
   if (msg.type === 'about') showAbout();
   if (msg.type === 'checkUpdate') checkForUpdate();
+  if (msg.type === 'update') updateMessage(msg);
   if (msg.type === 'export') doExport(msg.format);
   if (msg.type === 'exportCustomChapterTitles') {
     library.exportCustomChapterTitles = msg.checked;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
   }
   if (msg.type === 'emailDraft') doEmailDraft();
   if (msg.type === 'emailSettings') emailSettings();
@@ -5707,7 +6262,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'stats') openStats();
   if (msg.type === 'writingStyle') {
     library.writingStyle = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     if (window.neo.writingStyleState) window.neo.writingStyleState(library.writingStyle);
   }
   if (msg.type === 'coverArt') openCoverArt();
@@ -5721,21 +6276,26 @@ window.neo.onMenu(async (msg) => {
     try { if (book && !$('#editor-view').hidden) sessionStorage.setItem('neo-reopen', book.id); } catch { /* a nicety */ }
     setTimeout(() => window.neo.reloadForLanguage(), 400);
   }
+  if (msg.type === 'uiZoom') {
+    library.uiZoom = msg.value;
+    await writeLibrary(library);
+    applyFonts();
+  }
   if (msg.type === 'uiBright') {
-    library.uiBright = !library.uiBright;
-    await window.neo.writeLibrary(library);
+    library.uiBright = !document.body.classList.contains('bright');
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'pageTheme') {
     library.pageTheme = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'fontSize') {
     const cur = library.editorFontSize || 17;
     library.editorFontSize = msg.value === 0 ? 17 : Math.min(22, Math.max(14, cur + msg.value));
     if (msg.value === 0) library.pageZoom = 1; // ⌘0 resets pinch zoom too
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'bodyFontPick') {
@@ -5743,20 +6303,20 @@ window.neo.onMenu(async (msg) => {
     if (name) {
       library.fonts = library.fonts || {};
       library.fonts.body = name;
-      await window.neo.writeLibrary(library);
+      await writeLibrary(library);
     }
     applyFonts(); // also undoes a hover preview after Cancel
   }
   if (msg.type === 'bodyFont') {
     library.fonts = library.fonts || {};
     library.fonts.body = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
   if (msg.type === 'dropCap') {
     library.fonts = library.fonts || {};
     library.fonts.dropcap = msg.value;
-    await window.neo.writeLibrary(library);
+    await writeLibrary(library);
     applyFonts();
   }
 });
@@ -5820,6 +6380,190 @@ function installLinuxBodyFonts() {
   }
 }
 installLinuxBodyFonts();
+
+/* ================================================================== */
+/*  ACCESSIBILITY: keyboard, screen readers, system settings           */
+/* ================================================================== */
+// NEO stays quiet by design; these make the quiet parts reachable. The
+// system's own settings decide the rest: "Increase contrast" turns on the
+// Brighter Interface, "Reduce motion" stills the fades and slides.
+
+const SYSTEM_CONTRAST = window.matchMedia('(prefers-contrast: more)');
+const SYSTEM_STILL = window.matchMedia('(prefers-reduced-motion: reduce)');
+SYSTEM_CONTRAST.addEventListener('change', () => applyFonts());
+function scrollBehavior() { return SYSTEM_STILL.matches ? 'auto' : 'smooth'; }
+
+// Something clickable that isn't a <button>: Tab reaches it, Enter or Space
+// presses it, and a screen reader hears its name.
+function pressable(el, label) {
+  el.tabIndex = 0;
+  if (!el.getAttribute('role')) el.setAttribute('role', 'button');
+  if (label) el.setAttribute('aria-label', label);
+  el.addEventListener('keydown', (e) => {
+    if (e.target !== el || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+  });
+}
+for (const id of ['#author-chip', '#goal-counter', '#word-counter', '#zoom-level']) pressable($(id));
+
+// The mouse leaves nothing focused in the quiet chrome, as before these were
+// focusable: after a click on a book, a chapter row, a tab, a counter or a
+// button there, the writer's next keys don't press it again, wake the bottom
+// bar or slide a pane open. (Text fields keep focus; they always show it.)
+document.addEventListener('mouseup', () => {
+  const el = document.activeElement;
+  if (!el || el === document.body || el.matches(':focus-visible') || el.closest('.modal-backdrop')) return;
+  if (el.closest('#bottombar, #nav-pane, #side-pane, #shelf-header, #shelves')) el.blur();
+}, true);
+
+// the tabs: Enter or Space opens one, ← → move along the row
+$$('.tab').forEach((tab, i, all) => {
+  tab.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tab.click(); }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      all[(i + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length].focus();
+    }
+  });
+});
+
+// Dialogs: announced as dialogs, keyboard focus moves inside (so Esc and
+// Enter reach them) and comes back to where it was when they close.
+let focusBeforeDialog = null;
+document.addEventListener('focusin', (e) => {
+  if (e.target.closest('.modal-backdrop')) return;
+  // only what the keyboard reached gets focus back when a dialog closes; after
+  // a click, the next Space the writer types must not press that control again
+  focusBeforeDialog = e.target.matches(':focus-visible') ? e.target : null;
+}, true);
+function dialogify(bd) {
+  const box = bd.querySelector('.modal');
+  if (!box || box.getAttribute('role')) return;
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  const h = box.querySelector('h2');
+  if (h) {
+    h.id = h.id || 'dlg-' + Math.random().toString(36).slice(2, 9);
+    box.setAttribute('aria-labelledby', h.id);
+  }
+  bd._returnFocus = focusBeforeDialog;
+  requestAnimationFrame(() => {
+    if (bd.hidden || bd.contains(document.activeElement)) return;
+    const first = box.querySelector('input:not([type=hidden]), select, textarea, .m-ok, button, [tabindex="0"]');
+    if (first) first.focus({ preventScroll: true });
+  });
+}
+new MutationObserver((muts) => {
+  for (const m of muts) {
+    m.addedNodes.forEach((n) => { if (n.nodeType === 1 && n.classList.contains('modal-backdrop')) dialogify(n); });
+    m.removedNodes.forEach((n) => {
+      const back = n._returnFocus;
+      if (!back || !back.isConnected || back.isContentEditable) return; // the page restores its own caret
+      if (document.activeElement && document.activeElement !== document.body) return;
+      back.focus({ preventScroll: true });
+    });
+  }
+}).observe(document.body, { childList: true });
+$$('.modal-backdrop').forEach(dialogify);
+
+// F6 walks the regions a mouse finds by hovering: the page, the chapters
+// pane, the notes pane, the bottom bar. ⇧F6 walks back; Esc returns to
+// the page from any of them. A pane opened this way closes when the
+// keyboard leaves it, unless it is pinned.
+let pagePlace = null; // where the caret was when the keyboard left the page
+$('#paper-scroll').addEventListener('focusout', (e) => {
+  if ($('#paper-scroll').contains(e.relatedTarget)) return;
+  const sel = window.getSelection();
+  if (sel.rangeCount && e.target.isContentEditable) pagePlace = { el: e.target, range: sel.getRangeAt(0).cloneRange() };
+});
+function focusPage() {
+  if (pagePlace && pagePlace.el.isConnected && !pagePlace.el.closest('[hidden]')) {
+    pagePlace.el.focus({ preventScroll: true });
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(pagePlace.range);
+    return;
+  }
+  if (currentTab === 'manuscript' && book && book.chapterOrder.length) {
+    focusChapter(currentChapterId || book.chapterOrder[0]);
+    return;
+  }
+  const aux = $('#aux-paper');
+  const target = aux.querySelector('[contenteditable="true"]:not([hidden] *), button');
+  if (target) target.focus();
+}
+function openPaneFromKeyboard(pane, first) {
+  if (!pane.classList.contains('open')) { pane.classList.add('open'); pane.dataset.kbd = '1'; }
+  if (first) first.focus();
+}
+for (const pane of [$('#nav-pane'), $('#side-pane')]) {
+  pane.addEventListener('focusout', (e) => {
+    if (pane.contains(e.relatedTarget) || pane.dataset.kbd !== '1') return;
+    // a list rebuilt under the keyboard hands focus straight back: wait a beat
+    setTimeout(() => {
+      if (pane.contains(document.activeElement) || pane.dataset.kbd !== '1') return;
+      pane.dataset.kbd = '0';
+      if (pane.dataset.pinned !== '1' && !chapterDragActive) pane.classList.remove('open');
+    }, 0);
+  });
+}
+const REGIONS = [
+  { box: () => $('#paper-scroll'), enter: focusPage },
+  {
+    box: () => $('#nav-pane'),
+    enter: () => {
+      const rows = $$('#nav-list .n-row');
+      const cur = $('#nav-list .nav-item.current .n-row');
+      openPaneFromKeyboard($('#nav-pane'), cur || rows[0] || $('#nav-add'));
+    }
+  },
+  {
+    box: () => $('#side-pane'),
+    enter: () => openPaneFromKeyboard($('#side-pane'), $('#sticky-list textarea') || $('#side-pin'))
+  },
+  { box: () => $('#bottombar'), enter: () => ($('.tab.active') || $('#back-to-shelf')).focus() }
+];
+// F6, or ⌃Tab: on a Mac the F-keys drive brightness and sound unless fn is
+// held, so F6 alone would do nothing there.
+const regionKey = (e) => e.key === 'F6' || (e.key === 'Tab' && e.ctrlKey && !e.metaKey && !e.altKey);
+// On the shelf: the books, then the header (author, Import, + Shelf).
+const SHELF_REGIONS = [
+  { box: () => $('#shelves'), enter: () => { const b = $('#shelves .book') || $('#shelves .new-book'); if (b) b.focus(); } },
+  { box: () => $('#shelf-header'), enter: () => $('#author-chip').focus() }
+];
+document.addEventListener('keydown', (e) => {
+  if (document.querySelector('.modal-backdrop:not([hidden])')) return;
+  if ($('#editor-view').hidden) {
+    if (!regionKey(e)) return;
+    e.preventDefault();
+    const at = SHELF_REGIONS.findIndex((r) => r.box().contains(document.activeElement));
+    SHELF_REGIONS[at < 0 ? 0 : (at + 1) % SHELF_REGIONS.length].enter();
+    return;
+  }
+  const here = REGIONS.findIndex((r) => r.box().contains(document.activeElement));
+  if (regionKey(e)) {
+    e.preventDefault();
+    // from nowhere in particular (a book just opened), forward starts at the page
+    if (here < 0) { REGIONS[e.shiftKey ? REGIONS.length - 1 : 0].enter(); return; }
+    REGIONS[(here + (e.shiftKey ? REGIONS.length - 1 : 1)) % REGIONS.length].enter();
+    return;
+  }
+  // Esc from a pane or the bottom bar: back to the words, not to the shelf
+  if (e.key === 'Escape' && !e.isComposing && here > 0 && $('#searchbar').hidden) {
+    e.preventDefault();
+    e.stopPropagation();
+    focusPage();
+  }
+}, true);
+// up and down the chapter list
+$('#nav-list').addEventListener('keydown', (e) => {
+  if (!e.target.classList.contains('n-row') || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+  e.preventDefault();
+  const rows = $$('#nav-list .n-row');
+  const i = rows.indexOf(e.target) + (e.key === 'ArrowDown' ? 1 : -1);
+  if (rows[i]) rows[i].focus();
+});
 
 /* ================================================================== */
 
