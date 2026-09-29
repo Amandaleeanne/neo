@@ -208,9 +208,38 @@ function toast(msg, ms = 4000) {
   toast._t = setTimeout(() => { h.hidden = true; }, ms);
 }
 
+// Scripts that do not separate words with spaces: a whitespace count reports
+// one "word" for a whole sentence, so word goals and statistics read far too
+// low. Intl.Segmenter knows their boundaries; the same API already runs the
+// focus mode (see sentenceRange), and one segmenter is kept per script.
+const SEGMENTED_SCRIPTS = [
+  { lang: 'th', chars: /[\u0E00-\u0E7F]/ }, // Thai
+  { lang: 'lo', chars: /[\u0E80-\u0EFF]/ }, // Lao
+  { lang: 'my', chars: /[\u1000-\u109F]/ }, // Myanmar
+  { lang: 'km', chars: /[\u1780-\u17FF]/ }  // Khmer
+];
+let wordSegmenter = null;
+let wordSegmenterLang = '';
+
 // a word holds at least one letter or digit, so French « » and spaced
 // dashes are not counted as words
-const countWords = (text) => (text.trim().match(/\S+/g) || []).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+function countWords(text) {
+  const trimmed = text.trim();
+  if (trimmed === '') return 0;
+  if (window.Intl && Intl.Segmenter) {
+    const script = SEGMENTED_SCRIPTS.find((s) => s.chars.test(trimmed));
+    if (script) {
+      if (wordSegmenterLang !== script.lang) {
+        wordSegmenter = new Intl.Segmenter(script.lang, { granularity: 'word' });
+        wordSegmenterLang = script.lang;
+      }
+      let words = 0;
+      for (const part of wordSegmenter.segment(trimmed)) if (part.isWordLike) words += 1;
+      return words;
+    }
+  }
+  return (trimmed.match(/\S+/g) || []).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+}
 
 function cleanChapterEl(id) {
   const el = document.querySelector(`.chapter[data-id="${id}"] .chapter-body`);
