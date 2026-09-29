@@ -784,9 +784,12 @@ async function importFile(fp) {
   const isMdHeading = (t) => /^#{1,6}\s+\S/.test(t);
   const mdTitleOf = (t) => t.replace(/^#{1,6}\s*/, '').trim();
   // A heading that is purely NEO's own numbering ("Chapter 2", "Prologue",
-  // bare "7") carries no title — NEO numbers chapters itself.
+  // bare "7") carries no title — NEO numbers chapters itself. A line that
+  // only opens with one of those words and reads as a sentence ("Part of me
+  // wanted to run.", "Часть денег пропала.") is prose: it stays in the text.
+  const readsAsSentence = (t) => /[.!?…][”’"'»)]*$/.test(t) && t.trim().split(/\s+/).length > 2;
   const isNumberedHeading = (t) => (
-    (CHAPTER_WORDS.test(t) && t.length < 60) ||
+    (CHAPTER_WORDS.test(t) && t.length < 60 && !readsAsSentence(t)) ||
     (numeralMode && isNumeralish(t))
   );
   const isHeading = (t) => t && (isMdHeading(t) || isNumberedHeading(t));
