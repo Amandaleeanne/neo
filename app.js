@@ -297,10 +297,13 @@ function showFirstRun() {
     const capRow = $('#fr-dropcaps');
     capRow.innerHTML = '';
     const caps = { literary: t('Literary'), fantasy: t('Fantasy'), scifi: t('Sci-Fi') };
+    // an A of the alphabet the sample is written in, so each button shows
+    // the drop cap the writer will get (Cyrillic letters come from other faces)
+    const capA = /\p{Script=Cyrillic}/u.test($('#fr-sample-text').textContent) ? 'А' : 'A';
     for (const key of Object.keys(caps)) {
       const b = document.createElement('button');
       b.className = 'fr-font' + (picked.dropcap === key ? ' sel' : '');
-      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">A</span>${caps[key]}`;
+      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">${capA}</span>${caps[key]}`;
       b.onmouseenter = () => { document.documentElement.style.setProperty('--dropcap-font', DROPCAP_FONTS[key]); };
       b.onmouseleave = preview;
       b.onclick = () => {
@@ -2288,7 +2291,8 @@ const QUOTE_STYLES = {
   it: { open: '«', close: '»' },
   de: { open: '„', close: '“' },
   pl: { open: '„', close: '”' },
-  ro: { open: '„', close: '”' }
+  ro: { open: '„', close: '”' },
+  ru: { open: '«', close: '»' }
 };
 function writingLanguage() {
   return (library && library.spellLanguage) || NeoI18n.getLocale();
@@ -4322,7 +4326,7 @@ function toggleSpellcheck() {
 const SPELL_LANGUAGE_NAMES = {
   'en-US': t('US English'), 'en-GB': t('UK English'), 'en-CA': t('Canadian English'),
   'en-AU': t('Australian English'), fr: t('French'), es: t('Spanish'), de: t('German'),
-  nl: t('Dutch'), pl: t('Polish'), ro: t('Romanian')
+  nl: t('Dutch'), pl: t('Polish'), ro: t('Romanian'), ru: t('Russian')
 };
 async function changeSpellLanguage(code) {
   const ok = await window.neo.setSpellLanguage(code);
@@ -5126,8 +5130,11 @@ function showHelp() {
 /*  EXPORT + EMAIL                                                     */
 /* ================================================================== */
 
+// letters of every script stay (a Russian title keeps its name), only
+// punctuation goes
 function safeName(s) {
-  return (s || t('Untitled')).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  const clean = (x) => x.replace(/[^\p{L}\p{M}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-');
+  return clean(s || '') || clean(t('Untitled'));
 }
 
 // Every paragraph is rebuilt from its text runs, so exports carry only

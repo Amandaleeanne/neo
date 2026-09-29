@@ -15,8 +15,9 @@ NEO currently speaks:
 | `nl` | Nederlands | complete, machine-assisted: native review welcome |
 | `pl` | Polski | complete, machine-assisted: native review welcome |
 | `ro` | Română | complete, machine-assisted: native review welcome |
+| `ru` | Русский | complete, reviewed by a native speaker |
 
-Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch, Polish and Romanian. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
+Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch, Polish, Romanian and Russian. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
 
 Spellcheck starts off on every launch. Choosing a dictionary does not turn it on. If the interface starts in Romanian and the library has no saved spellcheck language, NEO selects and saves Romanian. Explicit dictionary choices survive interface-language changes. Other interface languages keep their existing defaults.
 
@@ -65,9 +66,13 @@ So `fr-CA.json` is short: in Quebec, "courriel" instead of "e-mail", and no spac
 
 ## Typing in each language
 
-While writing, NEO sets the quotation marks of the language being written: the spellcheck language when one is chosen, otherwise NEO's own language. « » for French (with narrow no-break spaces), Spanish, Italian and European Portuguese; „ “ for German; „ ” for Polish and Romanian; “ ” for English, Dutch and Brazilian Portuguese. The apostrophe is always ’. French also gets a narrow no-break space before ; : ! ? (before : only in Canadian French). The table is `QUOTE_STYLES` in `app.js`.
+While writing, NEO sets the quotation marks of the language being written: the spellcheck language when one is chosen, otherwise NEO's own language. « » for French (with narrow no-break spaces), Spanish, Italian, European Portuguese and Russian; „ “ for German; „ ” for Polish and Romanian; “ ” for English, Dutch and Brazilian Portuguese. The apostrophe is always ’. French also gets a narrow no-break space before ; : ! ? (before : only in Canadian French). The table is `QUOTE_STYLES` in `app.js`.
 
 Imports recognize chapter headings in all these languages (`CHAPTER_WORDS` in `main.js`), and cover titles treat each language's small words like "of" and "the" (`CONNECTORS` in `covers.js`).
+
+## Fonts in other alphabets
+
+Most fonts NEO bundles (the body fonts on Linux, the drop caps and the cover titles, in `fonts/`) have Latin letters only. For Russian, each has a companion under the same font name in `styles.css` that supplies the Cyrillic letters, so Latin text looks exactly as before. A language with letters of its own needs the same check: every bundled font, companions included, must carry them.
 
 ## For developers
 
