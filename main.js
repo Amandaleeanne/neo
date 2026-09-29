@@ -296,6 +296,20 @@ ipcMain.handle('book:writeMeta', (_e, bookId, meta) => {
   return meta.modified;
 });
 
+// {chapterId: mtime} for a book's chapter files — how refreshFromDisk tells
+// what changed without re-reading every chapter
+ipcMain.handle('chapter:stamps', (_e, bookId) => {
+  const out = {};
+  try {
+    const dir = path.join(bookDir(bookId), 'chapters');
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.html')) continue;
+      try { out[f.slice(0, -5)] = fs.statSync(path.join(dir, f)).mtimeMs; } catch { /* vanished */ }
+    }
+  } catch { /* no chapters folder yet */ }
+  return out;
+});
+
 ipcMain.handle('chapter:read', (_e, bookId, chapterId) => {
   const file = path.join(bookDir(bookId), 'chapters', chapterId + '.html');
   try {

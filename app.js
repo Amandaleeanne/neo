@@ -54,6 +54,7 @@ let book = null;             // current book.json
 let chapterHTML = {};        // chapterId -> html (loaded at open)
 let savedHTML = {};          // chapterId -> html as last read from / written to disk
 let savedMetaSig = '';       // book.json as last read/written, minus the volatile bits
+let diskStamps = {};         // chapterId -> file mtime as of the last look at the disk
 let stickies = [];           // [{id, chapterId, text, resolved}]
 let darlings = [];           // [{id, html, text, chapterId, chapterLabel, date}]
 let currentTab = 'manuscript';
@@ -66,6 +67,56 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 // Platform-aware key labels: Macs read ⌘⇧X, everyone else reads Ctrl+Shift+X
 const IS_MAC = navigator.platform.toLowerCase().includes('mac');
+// a touch screen (Pocket): nothing to hover, no right button
+const NO_HOVER = !!(window.matchMedia && window.matchMedia('(hover: none)').matches) || !!window.Capacitor;
+
+// Touch has no right-click: a long press on a book, a shelf name or a chapter
+// heading opens the same menu. Not inside the text itself — there a long
+// press belongs to the system's own selection handles.
+(() => {
+  let timer = null;
+  let start = null;
+  let swallowClick = false;
+  let armed = false; // held long enough; the menu opens when the finger lifts
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const target = e.target;
+    if (!target.closest) return;
+    // shelf names are editable on tap, but a long press on one is a menu
+    if (target.closest('[contenteditable="true"], input, textarea')) return;
+    if (target.closest('#pocket-chapters')) return;
+    const p = e.touches[0];
+    start = { x: p.clientX, y: p.clientY, target };
+    armed = false;
+    clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; armed = true; }, 550);
+  }, { passive: true });
+  const cancel = () => { clearTimeout(timer); timer = null; armed = false; };
+  document.addEventListener('touchmove', (e) => {
+    if (!start) return;
+    const p = e.touches[0];
+    if (Math.hypot(p.clientX - start.x, p.clientY - start.y) > 10) cancel();
+  }, { passive: true });
+  document.addEventListener('touchend', () => {
+    if (armed && start) {
+      // iOS usually sends no click after a long press; when it does, it
+      // comes at once — so the guard lifts itself before the menu's first tap
+      swallowClick = true;
+      setTimeout(() => { swallowClick = false; }, 300);
+      const { target, x, y } = start;
+      setTimeout(() => target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })), 30);
+    }
+    cancel();
+  }, { passive: true });
+  document.addEventListener('touchcancel', cancel, { passive: true });
+  // the tap that ends a long press must not also open the book
+  document.addEventListener('click', (e) => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+})();
 const K = (mac, pc) => (IS_MAC ? mac : pc);
 const KZ = K('⌘Z', 'Ctrl+Z');
 const KPH = K('⌘⇧X', 'Ctrl+Shift+X');
@@ -138,6 +189,16 @@ function optionModal(title, message, options) {
     bd.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
   });
 }
+
+// A click (or tap) on the dim page around any dialog dismisses it the way
+// its own quiet button would — Cancel or Later where there is one, else
+// Done/OK. Dialogs that must be answered have neither and stay put.
+document.addEventListener('mousedown', (e) => {
+  const bd = e.target && e.target.classList && e.target.classList.contains('modal-backdrop') ? e.target : null;
+  if (!bd || bd.dataset.stay === '1') return;
+  const btn = bd.querySelector('.m-cancel') || bd.querySelector('.m-ok');
+  if (btn) btn.click();
+});
 
 function toast(msg, ms = 4000) {
   const h = $('#hint');
@@ -287,6 +348,22 @@ function displayAuthor() {
   return currentAuthor().name || t('Anonymous');
 }
 
+// Redrawing the shelves used to read every book.json again — eighty files
+// through the bridge on Pocket, for a shelf rename. The shelves now keep
+// what they last read; any write to a book, and every look at the disk
+// (refreshFromDisk), forgets it.
+const bookMetaCache = new Map();
+async function shelfMeta(bookId) {
+  if (bookMetaCache.has(bookId)) return bookMetaCache.get(bookId);
+  const meta = await window.neo.readBookMeta(bookId);
+  if (meta) bookMetaCache.set(bookId, meta);
+  return meta;
+}
+(() => {
+  const write = window.neo.writeBookMeta;
+  window.neo.writeBookMeta = (bookId, meta) => { bookMetaCache.delete(bookId); return write(bookId, meta); };
+})();
+
 async function renderShelves() {
   await NeoCovers.ready; // display faces, so titles measure true
   const view = $('#bookshelf-view');
@@ -369,13 +446,29 @@ async function renderShelves() {
 
     const label = document.createElement('span');
     label.className = 'shelf-label';
-    label.contentEditable = 'true';
+    // on a touch screen the name turns editable only when tapped, so a long
+    // press (the menu) never wakes the keyboard or selects the text
+    label.contentEditable = NO_HOVER ? 'false' : 'true';
     label.spellcheck = false;
     label.textContent = shelf.name;
     label.title = t('Click to rename · right-click to export or delete');
+    if (NO_HOVER) {
+      label.addEventListener('click', () => {
+        if (label.isContentEditable) return;
+        label.contentEditable = 'true';
+        label.focus();
+        const r = document.createRange();
+        r.selectNodeContents(label);
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+      });
+    }
     label.addEventListener('blur', async () => {
       shelf.name = label.textContent.trim() || shelf.name;
       label.textContent = shelf.name;
+      if (NO_HOVER) label.contentEditable = 'false';
       await window.neo.writeLibrary(library);
     });
     label.addEventListener('keydown', (e) => {
@@ -487,7 +580,7 @@ async function renderShelves() {
     });
 
     for (const bookId of shelf.bookIds) {
-      const meta = await window.neo.readBookMeta(bookId);
+      const meta = await shelfMeta(bookId);
       if (!meta) continue;
       row.appendChild(bookTile(meta));
     }
@@ -645,23 +738,39 @@ function bookTile(meta) {
 
   el.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
-    const options = [
-      { label: meta.coverImage ? t('Replace cover art…') : t('Set cover art…'), desc: t('Pick an image (2:3 works best). Or just drag one from Finder onto the book.'), value: 'cover' }
-    ];
+    const options = [];
+    // no hover on a touch screen, so the ↻ that lives under the pointer
+    // moves into the menu; picking an image file is a desktop affair
+    if (NO_HOVER) options.push({ label: t('New cover'), desc: t('Another abstract cover for this book.'), value: 'refresh' });
+    else options.push({ label: meta.coverImage ? t('Replace cover art…') : t('Set cover art…'), desc: t('Pick an image (2:3 works best). Or just drag one from Finder onto the book.'), value: 'cover' });
     if (meta.coverImage) {
       options.push({ label: t('Remove cover art'), desc: t('Deletes the image from the book folder. (To just hide it, use the ↻ on the book.)'), danger: true, value: 'uncover' });
     }
+    // Pocket has no File menu: export lives here and in the ⋯ sheet
+    if (window.Capacitor) options.push({ label: t('Export…'), desc: t('Text, Markdown, HTML, Word or EPUB, through the share sheet.'), value: 'export' });
     options.push(
       { label: t('Set word goal…'), desc: t('Adds the subtle progress bar to the cover.'), value: 'goal' },
       { label: t('Remove from bookshelf'), desc: t('Takes it off your shelves. The files stay safe in your NEO Library folder on disk.'), value: 'remove' },
-      {
-        label: navigator.platform.toLowerCase().includes('win') ? t('Move to Recycle Bin') : t('Move to Trash'),
-        desc: t('Sends the book folder to your system trash, where you can recover it.'),
-        danger: true, value: 'trash'
-      }
+      window.Capacitor
+        ? { label: t('Delete book'), desc: t('Removes the book folder. The Files app keeps it in Recently Deleted for 30 days.'), danger: true, value: 'trash' }
+        : {
+          label: navigator.platform.toLowerCase().includes('win') ? t('Move to Recycle Bin') : t('Move to Trash'),
+          desc: t('Sends the book folder to your system trash, where you can recover it.'),
+          danger: true, value: 'trash'
+        }
     );
     const choice = await optionModal(`“${meta.title}”`, null, options);
-    if (choice === 'cover') {
+    if (choice === 'refresh') {
+      await refreshCover(meta, el);
+    } else if (choice === 'export') {
+      const fmt = await optionModal(t('Export “{title}”', { title: meta.title }), null, [
+        { label: t('Text (.txt)'), value: 'txt' }, { label: t('Markdown (.md)'), value: 'md' }, { label: t('HTML (.html)'), value: 'html' },
+        { label: t('Word (.docx)'), value: 'docx' }, { label: t('EPUB (.epub)'), value: 'epub' }
+      ]);
+      if (!fmt) return;
+      await openBook(meta.id);
+      await doExport(fmt);
+    } else if (choice === 'cover') {
       const src = await window.neo.pickCover();
       if (!src) return;
       const fname = await window.neo.setCover(meta.id, src);
@@ -862,7 +971,24 @@ $('#add-shelf-btn').onclick = async () => {
     authorId: currentAuthor().id
   });
   await window.neo.writeLibrary(library);
-  renderShelves();
+  await renderShelves();
+  // the new shelf may be below the fold: bring it up, name ready to type over
+  const shelves = $$('#shelves .shelf');
+  const last = shelves[shelves.length - 1];
+  if (last) {
+    last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const label = last.querySelector('.shelf-label');
+    if (label) setTimeout(() => {
+      if (NO_HOVER) { label.click(); return; }
+      label.focus();
+      const r = document.createRange();
+      r.selectNodeContents(label);
+      r.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }, 350);
+  }
 };
 
 // Drag a book up to your name: if you write under other names too, a little
@@ -1057,6 +1183,7 @@ async function openBook(bookId) {
   undoStack = [];
   chapterHTML = {};
   savedHTML = {};
+  diskStamps = {};
   for (const chId of book.chapterOrder) {
     chapterHTML[chId] = await window.neo.readChapter(bookId, chId);
     savedHTML[chId] = chapterHTML[chId];
@@ -3547,6 +3674,7 @@ let refreshing = false;
 async function refreshFromDisk() {
   if (refreshing) return;
   refreshing = true;
+  bookMetaCache.clear(); // whatever another device wrote, the next redraw reads
   try {
     if (!book) {
       if (library && !$('#bookshelf-view').hidden) {
@@ -3584,7 +3712,19 @@ async function refreshFromDisk() {
     }
     let adopted = 0;
     let conflicts = 0;
+    // file times first, so only chapters that changed on disk are re-read
+    // (a whole novel crossing the bridge every half minute is a hiccup)
+    let stamps = null;
+    if (window.neo.chapterStamps) {
+      try { stamps = await window.neo.chapterStamps(bookId); } catch { stamps = null; }
+      if (!book || book.id !== bookId) return;
+    }
     for (const chId of [...book.chapterOrder]) {
+      if (stamps) {
+        const st = stamps[chId];
+        if (st !== undefined && st === diskStamps[chId]) continue;
+        diskStamps[chId] = st;
+      }
       const disk = await window.neo.readChapter(bookId, chId);
       if (!book || book.id !== bookId) return;
       if (typeof disk !== 'string' || disk === savedHTML[chId]) continue;
@@ -4675,7 +4815,6 @@ function openStats() {
   bd.tabIndex = -1;
   bd.focus();
   bd.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
-  bd.addEventListener('mousedown', (e) => { if (e.target === bd) close(); });
   if (hasBook) {
     bd.querySelector('#st-sprint-btn').onclick = () => {
       if (sprint && !sprint.done) {
@@ -4962,7 +5101,6 @@ function showHelp() {
     }
   };
   bd.querySelector('.m-ok').onclick = close;
-  bd.addEventListener('mousedown', (e) => { if (e.target === bd) close(); });
   const handleKeyDown = (e) => {
     e.stopPropagation(); // The editor must not handle keys while reading help.
     if (e.key === 'Escape') { e.preventDefault(); close(); }
