@@ -1000,17 +1000,32 @@ async function dailyBackup() {
     const JSZip = require('jszip');
     const zip = new JSZip();
     const skip = new Set(['Backups', 'Exports']);
+    // One file the system won't hand over (in iCloud but not downloaded yet,
+    // held by a sync tool) used to throw, and cost the whole day's backup,
+    // every day. Now it's left out, named in the zip and in the error log.
+    const missed = [];
     const walk = (dir, rel) => {
-      for (const name of fs.readdirSync(dir)) {
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch (err) { missed.push(`${rel || '.'} (${err.code || err.message})`); return; }
+      for (const name of names) {
         if (rel === '' && skip.has(name)) continue;
+        if (name === '.DS_Store' || /^\..+\.icloud$/.test(name)) continue; // Finder litter; iCloud's stand-in for a file not downloaded
         const full = path.join(dir, name);
         const relPath = rel ? rel + '/' + name : name;
-        const stat = fs.statSync(full);
-        if (stat.isDirectory()) walk(full, relPath);
-        else zip.file(relPath, fs.readFileSync(full));
+        try {
+          const stat = fs.statSync(full);
+          if (stat.isDirectory()) walk(full, relPath);
+          else zip.file(relPath, fs.readFileSync(full));
+        } catch (err) {
+          missed.push(`${relPath} (${err.code || err.message})`);
+        }
       }
     };
     walk(LIBRARY_DIR, '');
+    if (missed.length) {
+      zip.file('_left-out-of-this-backup.txt', missed.join('\n') + '\n');
+      logError('backup', new Error('left out of today\'s backup: ' + missed.join(', ')));
+    }
     fs.writeFileSync(target, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
 
     // prune old backups
