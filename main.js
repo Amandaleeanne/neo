@@ -588,7 +588,11 @@ async function renderPDF(html) {
     return await pdfWin.webContents.printToPDF({
       pageSize: letterCountries.includes(app.getLocaleCountryCode()) ? 'Letter' : 'A4',
       margins: { top: 1, bottom: 1, left: 1, right: 1 },
-      printBackground: false
+      printBackground: false,
+      // chapter headings become the PDF's bookmarks, for jumping around in
+      // Preview or Acrobat, and the text is tagged for screen readers
+      generateTaggedPDF: true,
+      generateDocumentOutline: true
     });
   } finally {
     pdfWin.destroy();

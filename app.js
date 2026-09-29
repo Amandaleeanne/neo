@@ -5608,6 +5608,11 @@ function buildHtml(data, opts = {}) {
   .chapter p:not(.poetry) + p.poetry, .chapter h2 + p.poetry { margin-top: 0.9em; }
   .chapter p.poetry + p:not(.poetry) { margin-top: 0.9em; }
   .prov { margin-top: 80px; text-align: center; color: #999; font-size: 9pt; }
+  /* printed pages carry their number at the foot; the cover and the title
+     page don't, the way books do it (only the PDF uses these rules) */
+  @page { @bottom-center { content: counter(page); font-family: ${exportBodyFont()}; font-size: 9pt; color: #777; } }
+  @page front { @bottom-center { content: none; } }
+  .coverpage, .titlepage { page: front; }
 </style></head><body>
 ${opts.cover ? `<div class="coverpage"><img src="data:${opts.cover.mime};base64,${opts.cover.base64}" alt="${t('Cover')}"/></div>` : ''}
 <div class="titlepage"><h1>${escHtml(d.title)}</h1>
