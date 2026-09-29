@@ -297,10 +297,13 @@ function showFirstRun() {
     const capRow = $('#fr-dropcaps');
     capRow.innerHTML = '';
     const caps = { literary: t('Literary'), fantasy: t('Fantasy'), scifi: t('Sci-Fi') };
+    // an A of the alphabet the sample is written in, so each button shows
+    // the drop cap the writer will get (Cyrillic letters come from other faces)
+    const capA = /\p{Script=Cyrillic}/u.test($('#fr-sample-text').textContent) ? 'А' : 'A';
     for (const key of Object.keys(caps)) {
       const b = document.createElement('button');
       b.className = 'fr-font' + (picked.dropcap === key ? ' sel' : '');
-      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">A</span>${caps[key]}`;
+      b.innerHTML = `<span class="fr-cap" style="font-family:${DROPCAP_FONTS[key].replace(/"/g, '&quot;')}">${capA}</span>${caps[key]}`;
       b.onmouseenter = () => { document.documentElement.style.setProperty('--dropcap-font', DROPCAP_FONTS[key]); };
       b.onmouseleave = preview;
       b.onclick = () => {
@@ -2287,7 +2290,9 @@ const QUOTE_STYLES = {
   es: { open: '«', close: '»' },                          // RAE: « » first
   it: { open: '«', close: '»' },
   de: { open: '„', close: '“' },
-  pl: { open: '„', close: '”' }
+  pl: { open: '„', close: '”' },
+  ro: { open: '„', close: '”' },
+  ru: { open: '«', close: '»' }
 };
 function writingLanguage() {
   return (library && library.spellLanguage) || NeoI18n.getLocale();
@@ -4321,7 +4326,7 @@ function toggleSpellcheck() {
 const SPELL_LANGUAGE_NAMES = {
   'en-US': t('US English'), 'en-GB': t('UK English'), 'en-CA': t('Canadian English'),
   'en-AU': t('Australian English'), fr: t('French'), es: t('Spanish'), de: t('German'),
-  nl: t('Dutch'), pl: t('Polish')
+  nl: t('Dutch'), pl: t('Polish'), ro: t('Romanian'), ru: t('Russian')
 };
 async function changeSpellLanguage(code) {
   const ok = await window.neo.setSpellLanguage(code);
@@ -4374,6 +4379,9 @@ document.addEventListener('contextmenu', async (e) => {
       if (!library.customWords.includes(word)) library.customWords.push(word);
       await window.neo.writeLibrary(library);
       await window.neo.spellLearn(word);
+      // Learning also accepts equivalent Unicode spellings. Recheck cached
+      // failures so those variants lose their underlines in every editor.
+      spellCache.clear();
       spellCache.set(word, true);
       for (const k of [...spellScanned]) spellScanEl(spellElFor(k), k);
     }
@@ -4747,7 +4755,8 @@ function openCoverArt() {
   key.focus();
 }
 
-// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr
+// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr,
+// or 13:00 where the language's hour is a bare number
 function hourLabel(h) {
   if (h === 0) return t('midnight');
   const loc = NeoI18n.getLocale();
@@ -4755,7 +4764,9 @@ function hourLabel(h) {
     if (h === 12) return t('noon');
     return h < 12 ? t('{h} am', { h: String(h) }) : t('{h} pm', { h: String(h - 12) });
   }
-  return new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(new Date(2000, 0, 1, h));
+  const at = new Date(2000, 0, 1, h);
+  const hour = new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(at);
+  return /^\d+$/.test(hour) ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(at) : hour;
 }
 
 function openStats() {
@@ -5119,8 +5130,11 @@ function showHelp() {
 /*  EXPORT + EMAIL                                                     */
 /* ================================================================== */
 
+// letters of every script stay (a Russian title keeps its name), only
+// punctuation goes
 function safeName(s) {
-  return (s || t('Untitled')).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-');
+  const clean = (x) => x.replace(/[^\p{L}\p{M}\p{N}_\s-]/gu, '').trim().replace(/\s+/g, '-');
+  return clean(s || '') || clean(t('Untitled'));
 }
 
 // Every paragraph is rebuilt from its text runs, so exports carry only

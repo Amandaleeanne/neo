@@ -743,7 +743,11 @@ const CHAPTER_WORDS = new RegExp('^(' + [
   'capitolo',                                                      // it
   'kapitel', 'prolog', 'epilog', 'teil',                           // de
   'hoofdstuk', 'proloog', 'epiloog', 'deel',                       // nl
-  'rozdział', 'rozdzial', 'część', 'czesc'                          // pl
+  'rozdział', 'rozdzial', 'część', 'czesc',                         // pl
+  // ro (prolog, epilog above). A bare "Capitol" only before a number:
+  // on its own it is an English word, and "Capitol Hill was quiet." is prose
+  'capitol(?=\\s+\\d)', 'capitolul', 'partea',
+  'глава', 'пролог', 'эпилог', 'часть'                             // ru
 ].join('|') + ')(?![\\p{L}\\d])', 'iu');
 
 async function importFile(fp) {
@@ -780,9 +784,12 @@ async function importFile(fp) {
   const isMdHeading = (t) => /^#{1,6}\s+\S/.test(t);
   const mdTitleOf = (t) => t.replace(/^#{1,6}\s*/, '').trim();
   // A heading that is purely NEO's own numbering ("Chapter 2", "Prologue",
-  // bare "7") carries no title — NEO numbers chapters itself.
+  // bare "7") carries no title — NEO numbers chapters itself. A line that
+  // only opens with one of those words and reads as a sentence ("Part of me
+  // wanted to run.", "Часть денег пропала.") is prose: it stays in the text.
+  const readsAsSentence = (t) => /[.!?…][”’"'»)]*$/.test(t) && t.trim().split(/\s+/).length > 2;
   const isNumberedHeading = (t) => (
-    (CHAPTER_WORDS.test(t) && t.length < 60) ||
+    (CHAPTER_WORDS.test(t) && t.length < 60 && !readsAsSentence(t)) ||
     (numeralMode && isNumeralish(t))
   );
   const isHeading = (t) => t && (isMdHeading(t) || isNumberedHeading(t));
@@ -850,7 +857,9 @@ async function importFile(fp) {
   // title page, not in the body. Detect, harvest, and remove them.
   let title = styledTitle || null;
   let author = null;
-  const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // letters of any script; NFC because a Mac may hand over the file name
+  // decomposed while the text inside is composed
+  const norm = (s) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
   // "by Jane Doe" — or its equivalent in another language. Those words also
   // open ordinary sentences ("Par une nuit…", "Von Anfang an"), so outside
   // English the rest must look like a name: capitalized words (name
@@ -858,7 +867,7 @@ async function importFile(fp) {
   const bylineOf = (s) => {
     const en = s.match(/^by\s+(.{2,60})$/i);
     if (en) return en[1];
-    const m = s.match(/^(?:par|por|von|di|door|autor:?)\s+(.{2,60})$/iu);
+    const m = s.match(/^(?:par|por|von|di|door|de|autor:?|автор:?)\s+(.{2,60})$/iu);
     if (!m || /[.!?,;…]/.test(m[1])) return null;
     const words = m[1].trim().split(/\s+/);
     const particle = /^(de|da|di|do|dos|das|du|des|del|della|la|le|van|von|der|den|ten|ter|y|e)$/;
@@ -871,7 +880,7 @@ async function importFile(fp) {
     const titleish = t0 && t0.length < 90 && !/[.!?]$/.test(t0) && (
       (norm(t0).length > 3 && norm(name).includes(norm(t0))) ||
       !!bylineOf(t1) ||
-      (t0 === t0.toUpperCase() && /[A-Z].*[A-Z]/.test(t0) && t0.length < 60)
+      (t0 === t0.toUpperCase() && /\p{Lu}.*\p{Lu}/u.test(t0) && t0.length < 60)
     );
     if (titleish) {
       title = t0;
@@ -1041,7 +1050,9 @@ const SPELL_LANGUAGES = {
   'es': { label: 'Español', pkg: 'dictionary-es' },
   'de': { label: 'Deutsch', pkg: 'dictionary-de' },
   'nl': { label: 'Nederlands', pkg: 'dictionary-nl' },
-  'pl': { label: 'Polski', pkg: 'dictionary-pl' }
+  'pl': { label: 'Polski', pkg: 'dictionary-pl' },
+  'ro': { label: 'Română', pkg: 'dictionary-ro' },
+  'ru': { label: 'Русский', pkg: 'dictionary-ru' }
 };
 
 // The dictionary work runs in a helper process (spell-worker.js): parsing
@@ -1087,16 +1098,26 @@ async function loadSpellDictionary(code) {
   startSpellProcess();
   let custom = [];
   try { custom = readJSON(LIBRARY_FILE, {}).customWords || []; } catch { /* a nicety */ }
-  const res = await spellRequest({ type: 'load', dir: path.join(__dirname, 'node_modules', entry.pkg), custom });
+  const res = await spellRequest({ type: 'load', language: known, dir: path.join(__dirname, 'node_modules', entry.pkg), custom });
   if (!res.ok) { logError('spell', new Error(res.error || 'dictionary failed to load')); return false; }
   spellLanguage = known;
   return true;
 }
 
 function initSpell() {
-  let code = 'en-US';
-  try { code = readJSON(LIBRARY_FILE, {}).spellLanguage || 'en-US'; } catch { /* fresh library */ }
-  loadSpellDictionary(code);
+  const saved = readJSON(LIBRARY_FILE, null);
+  const readable = !!saved && typeof saved === 'object' && !Array.isArray(saved);
+  const library = readable ? saved : {};
+  // Resolve this once, before the renderer reads the library. Keep an
+  // explicit choice even with Romanian menus, and keep other locales'
+  // existing default and quotation-mark fallback unchanged. A library.json
+  // that doesn't parse is left exactly as it is: never rewritten from here.
+  if (!library.spellLanguage && uiLanguage === 'ro') {
+    library.spellLanguage = 'ro';
+    if (readable) writeJSON(LIBRARY_FILE, library);
+  }
+  spellLanguage = SPELL_LANGUAGES[library.spellLanguage] ? library.spellLanguage : 'en-US';
+  loadSpellDictionary(spellLanguage);
 }
 
 ipcMain.handle('spell:setLanguage', async (_e, code) => {

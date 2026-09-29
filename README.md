@@ -73,7 +73,7 @@ Everything lives in `~/Documents/NEO Library` — one folder per book, chapters 
 
 ## Languages
 
-NEO speaks English, French, Spanish, Portuguese, German, Italian, Dutch and Polish. Pick one under **View → Language**; on first launch NEO follows your system language when it has it. Adding a language is a single file, no programming needed: see [TRANSLATING.md](TRANSLATING.md).
+NEO speaks English, French, Spanish, Portuguese, German, Italian, Dutch, Polish, Romanian and Russian. Pick one under **View → Language**; on first launch NEO follows your system language when it has it. Adding a language is a single file, no programming needed: see [TRANSLATING.md](TRANSLATING.md).
 
 ## Building from source (for the eggheads):
 
