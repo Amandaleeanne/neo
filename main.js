@@ -177,10 +177,18 @@ function ensureLibrary() {
   }
 }
 
+// Every book, chapter and sidecar name the page sends is one plain name
+// inside the library: ".", ".." and path separators never reach the disk.
+// Any name NEO ever made passes, and so does a folder named by hand.
+function libName(name) {
+  if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\0]/.test(name)) {
+    throw new Error('Invalid library name');
+  }
+  return name;
+}
+
 function bookDir(bookId) {
-  const safeId = path.basename(String(bookId));
-  if (!safeId || safeId !== bookId) throw new Error('Invalid bookId');
-  return path.join(LIBRARY_DIR, safeId);
+  return path.join(LIBRARY_DIR, libName(bookId));
 }
 
 // A human-readable map of the library, regenerated on every change:
@@ -316,7 +324,7 @@ ipcMain.handle('chapter:stamps', (_e, bookId) => {
 });
 
 ipcMain.handle('chapter:read', (_e, bookId, chapterId) => {
-  const file = path.join(bookDir(bookId), 'chapters', chapterId + '.html');
+  const file = path.join(bookDir(bookId), 'chapters', libName(chapterId) + '.html');
   try {
     return fs.readFileSync(file, 'utf8');
   } catch {
@@ -326,20 +334,21 @@ ipcMain.handle('chapter:read', (_e, bookId, chapterId) => {
 
 ipcMain.handle('chapter:write', (_e, bookId, chapterId, html) => {
   const dir = path.join(bookDir(bookId), 'chapters');
+  const file = path.join(dir, libName(chapterId) + '.html');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, chapterId + '.html'), html);
+  fs.writeFileSync(file, html);
   return true;
 });
 
 ipcMain.handle('chapter:delete', (_e, bookId, chapterId) => {
-  const file = path.join(bookDir(bookId), 'chapters', chapterId + '.html');
+  const file = path.join(bookDir(bookId), 'chapters', libName(chapterId) + '.html');
   if (fs.existsSync(file)) fs.unlinkSync(file);
   return true;
 });
 
 ipcMain.handle('aux:read', (_e, bookId, name) => {
   // name: 'notes' | 'outline'
-  const file = path.join(bookDir(bookId), name + '.html');
+  const file = path.join(bookDir(bookId), libName(name) + '.html');
   try {
     return fs.readFileSync(file, 'utf8');
   } catch {
@@ -348,16 +357,16 @@ ipcMain.handle('aux:read', (_e, bookId, name) => {
 });
 
 ipcMain.handle('aux:write', (_e, bookId, name, html) => {
-  fs.writeFileSync(path.join(bookDir(bookId), name + '.html'), html);
+  fs.writeFileSync(path.join(bookDir(bookId), libName(name) + '.html'), html);
   return true;
 });
 
 ipcMain.handle('json:read', (_e, bookId, name, fallback) => {
-  return readJSON(path.join(bookDir(bookId), name + '.json'), fallback);
+  return readJSON(path.join(bookDir(bookId), libName(name) + '.json'), fallback);
 });
 
 ipcMain.handle('json:write', (_e, bookId, name, data) => {
-  writeJSON(path.join(bookDir(bookId), name + '.json'), data);
+  writeJSON(path.join(bookDir(bookId), libName(name) + '.json'), data);
   return true;
 });
 

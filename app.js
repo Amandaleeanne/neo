@@ -3680,8 +3680,13 @@ function persistChapter(chId, html) {
 
 function scheduleChapterSave(chId) {
   clearTimeout(saveTimers[chId]);
+  const bookId = book && book.id;
   saveTimers[chId] = setTimeout(() => {
     if (!book) return; // the book closed before the timer fired; flushAllSaves already wrote it
+    // another book is open, or the chapter was deleted or merged into the one
+    // above while this save waited: its words are already where they belong,
+    // and writing now would only leave an empty stray file in chapters/
+    if (book.id !== bookId || !book.chapterOrder.includes(chId)) return;
     persistChapter(chId);
   }, 800);
 }
