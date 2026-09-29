@@ -744,7 +744,9 @@ const CHAPTER_WORDS = new RegExp('^(' + [
   'kapitel', 'prolog', 'epilog', 'teil',                           // de
   'hoofdstuk', 'proloog', 'epiloog', 'deel',                       // nl
   'rozdział', 'rozdzial', 'część', 'czesc',                         // pl
-  'capitol', 'capitolul', 'partea'                                 // ro (prolog, epilog above)
+  // ro (prolog, epilog above). A bare "Capitol" only before a number:
+  // on its own it is an English word, and "Capitol Hill was quiet." is prose
+  'capitol(?=\\s+\\d)', 'capitolul', 'partea'
 ].join('|') + ')(?![\\p{L}\\d])', 'iu');
 
 async function importFile(fp) {

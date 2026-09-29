@@ -304,7 +304,7 @@ const NeoCovers = (() => {
     'il', 'lo', 'i', 'gli', 'di', 'della', 'dei', 'nel', 'nella', 'per', // it
     'het', 'een', 'van', 'op', 'met', // nl
     'w', 'z', 'na', 'do', 'ze', 'we', // pl
-    'si', 'in', 'din', 'cu', 'pe', 'pentru', 'un', 'o', 'al', 'ai', 'ale', 'la', 'de', 'sau', 'spre', 'sub', 'intre', 'fara' // ro
+    'si', 'in', 'din', 'cu', 'pe', 'pentru', 'un', 'o', 'al', 'ale', 'la', 'de', 'sau', 'spre', 'sub', 'intre', 'fara' // ro ('ai' left out: "When AI Dreams")
   ]);
 
   // fonts must be in before anything is measured
