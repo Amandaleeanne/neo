@@ -448,7 +448,7 @@
   "Today's words — click for goals, sprints, and your progress chart": "Dzisiejsze słowa: kliknij, aby zobaczyć cele, sprinty i wykres postępów",
   "total": "razem",
   "total words": "słów łącznie",
-  "Typed around a word (or pasted). Undo right after keeps the asterisks.": "Wokół słowa, wpisane lub wklejone. Cofnięcie tuż po zachowuje gwiazdki.",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Wokół słowa, wpisane lub wklejone. Cofnięcie tuż po zachowuje gwiazdki. Format → Wyróżnienia Markdown wyłącza tę funkcję.",
   "Typewriter Scrolling": "Przewijanie jak w maszynie do pisania",
   "Typewriter scrolling off": "Przewijanie jak w maszynie do pisania wyłączone",
   "Typewriter scrolling ON — your line stays centered": "Przewijanie jak w maszynie do pisania WŁĄCZONE: twój wiersz zostaje na środku",
@@ -605,5 +605,8 @@
   "Normal": "Normalny",
   "Large (125%)": "Duży (125 %)",
   "Larger (150%)": "Większy (150 %)",
-  "Largest (200%)": "Największy (200 %)"
+  "Largest (200%)": "Największy (200 %)",
+  "Markdown Emphasis": "Wyróżnienia Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Wyróżnienia Markdown włączone: *kursywa*, **pogrubienie**",
+  "Markdown emphasis off: asterisks stay asterisks": "Wyróżnienia Markdown wyłączone: gwiazdki zostają gwiazdkami"
 }

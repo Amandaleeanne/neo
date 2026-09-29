@@ -423,7 +423,7 @@
   "Today's words — click for goals, sprints, and your progress chart": "Palavras de hoje: clique para metas, sprints e o seu gráfico de progresso",
   "total": "total",
   "total words": "palavras no total",
-  "Typed around a word (or pasted). Undo right after keeps the asterisks.": "Em volta de uma palavra, digitado ou colado. Desfazer logo depois mantém os asteriscos.",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Em volta de uma palavra, digitado ou colado. Desfazer logo depois mantém os asteriscos. Formatar → Ênfase Markdown desativa.",
   "Typewriter Scrolling": "Rolagem de máquina de escrever",
   "Typewriter scrolling off": "Rolagem de máquina de escrever desativada",
   "Typewriter scrolling ON — your line stays centered": "Rolagem de máquina de escrever ATIVADA: a sua linha fica centralizada",
@@ -571,5 +571,8 @@
   "Normal": "Normal",
   "Large (125%)": "Grande (125%)",
   "Larger (150%)": "Maior (150%)",
-  "Largest (200%)": "Máximo (200%)"
+  "Largest (200%)": "Máximo (200%)",
+  "Markdown Emphasis": "Ênfase Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Ênfase Markdown ativada: *itálico*, **negrito**",
+  "Markdown emphasis off: asterisks stay asterisks": "Ênfase Markdown desativada: asteriscos continuam asteriscos"
 }

@@ -423,7 +423,7 @@
   "Today's words — click for goals, sprints, and your progress chart": "Wörter von heute: Klicke für Ziele, Sprints und deine Fortschrittskurve",
   "total": "gesamt",
   "total words": "Wörter insgesamt",
-  "Typed around a word (or pasted). Undo right after keeps the asterisks.": "Um ein Wort getippt oder eingefügt. Direkt danach Rückgängig behält die Sternchen.",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Um ein Wort getippt oder eingefügt. Direkt danach Rückgängig behält die Sternchen. Format → Markdown-Hervorhebung schaltet es aus.",
   "Typewriter Scrolling": "Schreibmaschinen-Scrollen",
   "Typewriter scrolling off": "Schreibmaschinen-Scrollen aus",
   "Typewriter scrolling ON — your line stays centered": "Schreibmaschinen-Scrollen AN: Deine Zeile bleibt in der Mitte",
@@ -571,5 +571,8 @@
   "Normal": "Normal",
   "Large (125%)": "Groß (125 %)",
   "Larger (150%)": "Größer (150 %)",
-  "Largest (200%)": "Am größten (200 %)"
+  "Largest (200%)": "Am größten (200 %)",
+  "Markdown Emphasis": "Markdown-Hervorhebung",
+  "Markdown emphasis on: *italic*, **bold**": "Markdown-Hervorhebung an: *kursiv*, **fett**",
+  "Markdown emphasis off: asterisks stay asterisks": "Markdown-Hervorhebung aus: Sternchen bleiben Sternchen"
 }

@@ -2186,7 +2186,7 @@ function wireChapterBody(body, chId) {
       parts.forEach((p, i) => {
         if (i > 0) document.execCommand('insertParagraph');
         // plain text written in Markdown keeps its *italics* and **bold**
-        const styled = markdownInline(p.trim());
+        const styled = library && library.markdownOff ? null : markdownInline(p.trim());
         if (styled) {
           document.execCommand('insertHTML', false, styled);
           stripJunkSpans(body); // the engine wraps inserted HTML in style spans
@@ -3084,6 +3084,7 @@ function selectChars(el, from, to) {
 }
 let mdJustSet = null; // what was just turned into styling, for ⌘Z
 function markdownEmphasis(e, body, range) {
+  if (library && library.markdownOff) return false;
   if (e.key !== '*' && e.key !== '_') return false;
   if (!body.matches || !body.matches('.chapter-body, #aux-editor')) return false;
   if (!range.collapsed) return false;
@@ -6166,7 +6167,7 @@ function shortcutSections() {
     { title: tk('Formatting'), rows: [
       [K('⌘B', 'Ctrl+B'), tk('Bold')],
       [K('⌘I', 'Ctrl+I'), tk('Italic')],
-      [['*…*', '**…**', '***…***'], tk('Italic, bold, the Markdown way'), tk('Typed around a word (or pasted). Undo right after keeps the asterisks.')],
+      [['*…*', '**…**', '***…***'], tk('Italic, bold, the Markdown way'), tk('Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.')],
       [K('⌘⇧L', 'Ctrl+Shift+L'), tk('Align paragraph left')],
       [K('⌘⇧C', 'Ctrl+Shift+C'), tk('Center paragraph')],
       [K('⌘⇧R', 'Ctrl+Shift+R'), tk('Align paragraph right')],
@@ -7450,6 +7451,11 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'checkUpdate') checkForUpdate();
   if (msg.type === 'update') updateMessage(msg);
   if (msg.type === 'export') doExport(msg.format);
+  if (msg.type === 'markdownEmphasis') {
+    if (msg.checked) delete library.markdownOff; else library.markdownOff = true;
+    await writeLibrary(library);
+    toast(msg.checked ? t('Markdown emphasis on: *italic*, **bold**') : t('Markdown emphasis off: asterisks stay asterisks'));
+  }
   if (msg.type === 'exportCustomChapterTitles') {
     library.exportCustomChapterTitles = msg.checked;
     await writeLibrary(library);
