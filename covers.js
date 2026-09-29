@@ -303,7 +303,8 @@ const NeoCovers = (() => {
     'der', 'die', 'das', 'und', 'von', 'im', 'ein', 'eine', 'des', 'dem', 'den', 'mit', 'zum', 'zur', // de
     'il', 'lo', 'i', 'gli', 'di', 'della', 'dei', 'nel', 'nella', 'per', // it
     'het', 'een', 'van', 'op', 'met', // nl
-    'w', 'z', 'na', 'do', 'ze', 'we' // pl
+    'w', 'z', 'na', 'do', 'ze', 'we', // pl
+    'si', 'in', 'din', 'cu', 'pe', 'pentru', 'un', 'o', 'al', 'ai', 'ale', 'la', 'de', 'sau', 'spre', 'sub', 'intre', 'fara' // ro
   ]);
 
   // fonts must be in before anything is measured
@@ -325,7 +326,7 @@ const NeoCovers = (() => {
   function breakLines(title, t) {
     const words = title.trim().split(/\s+/).filter(Boolean);
     if (!words.length) return [{ text: (typeof NeoI18n !== 'undefined' ? NeoI18n.t('Untitled') : 'Untitled'), small: false }];
-    const isConn = (w) => CONNECTORS.has(w.toLowerCase().replace(/[^a-z]/g, ''));
+    const isConn = (w) => CONNECTORS.has(w.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/[^a-z]/g, ''));
     let lines;
     if (words.length <= t.maxLines) {
       lines = words.map((w) => ({ text: w, small: isConn(w) && t.connectors !== 'inline' && words.length > 1 }));

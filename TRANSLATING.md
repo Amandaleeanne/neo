@@ -14,6 +14,7 @@ NEO currently speaks:
 | `it` | Italiano | complete, machine-assisted: native review welcome |
 | `nl` | Nederlands | complete, machine-assisted: native review welcome |
 | `pl` | Polski | complete, machine-assisted: native review welcome |
+| `ro` | Română | complete, machine-assisted: native review welcome |
 
 Spellchecking (Edit → Spellcheck Language) covers English, French, Spanish, German, Dutch and Polish. Italian is left out because the only Hunspell dictionary on npm is GPL-3.0-only, which does not sit well in an MIT app; Portuguese because its dictionary takes minutes to load with nspell.
 
@@ -60,7 +61,7 @@ So `fr-CA.json` is short: in Quebec, "courriel" instead of "e-mail", and no spac
 
 ## Typing in each language
 
-While writing, NEO sets the quotation marks of the language being written: the spellcheck language when one is chosen, otherwise NEO's own language. « » for French (with narrow no-break spaces), Spanish, Italian and European Portuguese; „ “ for German; „ ” for Polish; “ ” for English, Dutch and Brazilian Portuguese. The apostrophe is always ’. French also gets a narrow no-break space before ; : ! ? (before : only in Canadian French). The table is `QUOTE_STYLES` in `app.js`.
+While writing, NEO sets the quotation marks of the language being written: the spellcheck language when one is chosen, otherwise NEO's own language. « » for French (with narrow no-break spaces), Spanish, Italian and European Portuguese; „ “ for German; „ ” for Polish and Romanian; “ ” for English, Dutch and Brazilian Portuguese. The apostrophe is always ’. French also gets a narrow no-break space before ; : ! ? (before : only in Canadian French). The table is `QUOTE_STYLES` in `app.js`.
 
 Imports recognize chapter headings in all these languages (`CHAPTER_WORDS` in `main.js`), and cover titles treat each language's small words like "of" and "the" (`CONNECTORS` in `covers.js`).
 
