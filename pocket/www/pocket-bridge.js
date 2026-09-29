@@ -222,7 +222,9 @@
     },
 
     /* ---------- chapters ---------- */
-    // {chId: mtime}: lets app.js re-read only what changed on disk
+    // {chId: mtime and size}: lets app.js re-read only what changed on disk
+    // (the size too: Syncthing and iCloud keep the other device's mtime, and
+    // two saves in the same second must not look alike)
     chapterStamps: async (bookId) => {
       const out = {};
       try {
@@ -230,7 +232,7 @@
         const ls = await FS().readdir(at(p(bookId, 'chapters')));
         for (const f of ls.files || []) {
           const name = (f && f.name) || String(f);
-          if (name.endsWith('.html')) out[name.slice(0, -5)] = (f && f.mtime) || 0;
+          if (name.endsWith('.html')) out[name.slice(0, -5)] = ((f && f.mtime) || 0) + ':' + ((f && f.size) || 0);
         }
       } catch { /* no chapters yet */ }
       return out;

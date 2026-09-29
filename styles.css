@@ -457,8 +457,9 @@ body.night #aux-editor * { color: inherit; }
   width: calc(680px * var(--page-zoom, 1)); max-width: 92%;
   margin: 40px auto 120px;
 }
-/* typewriter scrolling: room below the last line so it can sit mid-screen */
-body.typewriter #paper { margin-bottom: 60vh; }
+/* typewriter scrolling: room below the last line so it can sit mid-screen
+   (app.js works out how much the last page doesn't already give) */
+body.typewriter #paper { margin-bottom: var(--typewriter-room, 60vh); }
 /* focus mode: the manuscript fades back, the neo-focus highlight (set in
    app.js) repaints the current sentence / paragraph / scene at full ink */
 .chapter-body, .chapter-head { transition: color 0.25s ease; }
@@ -549,6 +550,10 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off) p:not(.po
    The italic is real markup, laid in when the paragraph is made, so ⌘I
    takes it off any word the writer wants roman. */
 .chapter-body p.poetry { margin: 0 2.5em; text-indent: 0; }
+/* a poetry paragraph is one italic; emphasis inside it stands upright, as
+   typesetters set it (and as every export does, see paraRuns in app.js) */
+.chapter-body i i { font-style: normal; }
+.chapter-body i i i { font-style: italic; }
 .chapter-body p:not(.poetry) + p.poetry { margin-top: 0.9em; }
 .chapter-body p.poetry + p:not(.poetry) { margin-top: 0.9em; }
 /* cap-off while the caret is in the first paragraph: the rule must stop
@@ -754,6 +759,9 @@ body.bright .spell-menu button { color: #eee; }
   opacity: 0.35; transition: opacity 0.15s ease;
 }
 #bottombar:hover, #bottombar.attn { opacity: 1; }
+/* full screen plus focus mode: nothing on screen but the page; the bar
+   comes back when the pointer reaches the bottom edge */
+body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
 #back-to-shelf {
   background: none; border: none; color: var(--muted); font-size: 12px;
 }
@@ -789,6 +797,8 @@ body.bright .spell-menu button { color: #eee; }
   color: #eee; font-size: 13px; padding: 6px 10px; width: 170px;
 }
 #searchbar input:focus { outline: none; border-color: var(--accent); }
+/* outside the manuscript Find only finds */
+#searchbar.find-only #replace-input, #searchbar.find-only #replace-one, #searchbar.find-only #replace-all { display: none; }
 #searchbar button {
   background: none; border: 1px solid #3a3a3a; border-radius: 5px;
   color: #aaa; font-size: 12px; padding: 5px 9px;

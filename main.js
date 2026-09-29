@@ -296,15 +296,20 @@ ipcMain.handle('book:writeMeta', (_e, bookId, meta) => {
   return meta.modified;
 });
 
-// {chapterId: mtime} for a book's chapter files — how refreshFromDisk tells
-// what changed without re-reading every chapter
+// {chapterId: mtime and size} for a book's chapter files — how refreshFromDisk
+// tells what changed without re-reading every chapter. The size is there
+// because sync tools hand over the other device's mtime, and on disks that
+// keep whole seconds two saves a second apart would otherwise look the same.
 ipcMain.handle('chapter:stamps', (_e, bookId) => {
   const out = {};
   try {
     const dir = path.join(bookDir(bookId), 'chapters');
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.html')) continue;
-      try { out[f.slice(0, -5)] = fs.statSync(path.join(dir, f)).mtimeMs; } catch { /* vanished */ }
+      try {
+        const st = fs.statSync(path.join(dir, f));
+        out[f.slice(0, -5)] = st.mtimeMs + ':' + st.size;
+      } catch { /* vanished */ }
     }
   } catch { /* no chapters folder yet */ }
   return out;
@@ -1036,6 +1041,20 @@ function createWindow() {
     }
   });
   win.loadFile('index.html');
+  // The menu bar follows the real full-screen state, whoever changed it.
+  // Electron only puts the bar back after a full screen it entered itself,
+  // so once a window manager's own full-screen key had been used (Sway, i3),
+  // NEO's toggle left the bar hidden for good. Run a tick later, after
+  // Electron's own show/hide, so this has the last word.
+  const fullScreenChanged = (full) => setImmediate(() => {
+    if (win.isDestroyed()) return;
+    win.webContents.send('menu', { type: 'fullScreen', value: full }); // the page's bottom bar too
+    if (process.platform === 'darwin') return;
+    win.setMenuBarVisibility(!full && !win.isMenuBarAutoHide());
+  });
+  win.on('enter-full-screen', () => fullScreenChanged(true));
+  win.on('leave-full-screen', () => fullScreenChanged(false));
+  win.webContents.on('did-finish-load', () => { if (win.isFullScreen()) fullScreenChanged(true); });
   const remember = () => {
     if (win.isDestroyed() || win.isFullScreen() || win.isMinimized()) return;
     writeSettings({ ...readSettings(), window: win.getNormalBounds() });

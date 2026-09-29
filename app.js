@@ -55,6 +55,7 @@ let chapterHTML = {};        // chapterId -> html (loaded at open)
 let savedHTML = {};          // chapterId -> html as last read from / written to disk
 let savedMetaSig = '';       // book.json as last read/written, minus the volatile bits
 let diskStamps = {};         // chapterId -> file mtime as of the last look at the disk
+let writing = {};            // chapterId -> chapter writes still on their way to disk
 let stickies = [];           // [{id, chapterId, text, resolved}]
 let darlings = [];           // [{id, html, text, chapterId, chapterLabel, date}]
 let currentTab = 'manuscript';
@@ -2295,7 +2296,7 @@ function smartKeys(e, body) {
     e.preventDefault();
     const before = prevChars(1);
     const opening = before === '' || /[\s\(\[\{—‘“«„>]/.test(before);
-    const q = quoteStyle();
+    const q = e.key === '"' ? bookQuotes(body) : quoteStyle();
     let ch;
     if (e.key === "'") {
       // most languages type ' as an apostrophe only; English and Dutch also
@@ -2329,6 +2330,25 @@ function writingLanguage() {
 function quoteStyle() {
   const code = writingLanguage();
   return QUOTE_STYLES[code] || QUOTE_STYLES[code.split('-')[0]] || QUOTE_STYLES.en;
+}
+// …unless the book has settled on guillemets its language doesn't use:
+// German novels often set »…« where the language says „…“, Swiss writing
+// «…». Whichever mark opens the most quotes wins — in this chapter, or in
+// the book when the chapter has none yet — so a » typed by hand once is
+// enough to carry on in that style.
+function bookQuotes(el) {
+  const q = quoteStyle();
+  const opens = (text) => {
+    const n = (re) => (text.match(re) || []).length;
+    const own = q.open.trim();
+    return { '»': n(/»(?=[\p{L}\p{N}])/gu), '«': own === '«' ? 0 : n(/«(?=[\p{L}\p{N}])/gu), own: n(new RegExp(own + '\\s?(?=[\\p{L}\\p{N}])', 'gu')) };
+  };
+  const body = el && el.closest ? el.closest('.chapter-body') : null;
+  let c = opens(body ? body.textContent : '');
+  if (!c['»'] && !c['«'] && !c.own && book) c = opens(book.chapterOrder.map((id) => chapterHTML[id] || '').join(' '));
+  if (c['»'] > c.own && c['»'] >= c['«']) return { open: '»', close: '«' };
+  if (c['«'] > c.own && c['«'] > c['»']) return { open: '«', close: '»' };
+  return q;
 }
 
 // French typographic rules apply when the book is spellchecked in French,
@@ -3099,11 +3119,14 @@ function switchTab(name) {
   // stash whatever aux content was open
   flushAux();
 
+  // an open Find follows the tab (Notes arrives from disk, so it looks later)
+  const findHere = () => { if (!$('#searchbar').hidden) runSearch(); };
   if (name === 'manuscript') {
     paper.hidden = false;
     aux.hidden = true;
     if (back && back.caret) restoreCaret(back.caret); // brings the scroll along
     else returnTo();
+    findHere();
     return;
   }
   paper.hidden = true;
@@ -3117,12 +3140,14 @@ function switchTab(name) {
     dList.hidden = false;
     renderDarlings();
     returnTo();
+    findHere();
   } else if (name === 'outline') {
     $('#aux-title').textContent = tabName('outline');
     oList.hidden = false;
     if (book.chapterOrder.length === 0) createChapterAt(0);
     renderOutline();
     returnTo();
+    findHere();
   } else {
     $('#aux-title').textContent = tabName(name);
     auxEditor.hidden = false;
@@ -3131,6 +3156,7 @@ function switchTab(name) {
       auxEditor.innerHTML = html || '';
       auxEditor.focus({ preventScroll: true });
       returnTo();
+      findHere();
     });
   }
 }
@@ -3640,8 +3666,16 @@ $('#paper-scroll').addEventListener('scroll', () => {
 function persistChapter(chId, html) {
   if (!book) return Promise.resolve(false);
   if (html === undefined) html = chapterHTML[chId] || '';
+  const before = savedHTML[chId];
   savedHTML[chId] = html;
-  return window.neo.writeChapter(book.id, chId, html);
+  writing[chId] = (writing[chId] || 0) + 1;
+  return new Promise((resolve) => resolve(window.neo.writeChapter(book.id, chId, html))).catch((err) => {
+    // It never reached the disk. Book it as unsaved again, so the next flush
+    // tries once more, and so a look at the disk can't take the old file
+    // for news and put it back on the page.
+    if (savedHTML[chId] === html) savedHTML[chId] = before;
+    throw err;
+  }).finally(() => { writing[chId]--; });
 }
 
 function scheduleChapterSave(chId) {
@@ -3706,6 +3740,21 @@ function flushAllSaves() {
 /*  nothing is ever lost quietly.                                      */
 /* ================================================================== */
 
+// True when the disk copy of a chapter has no word the page lacks, but the
+// page has words it lacks: an older copy, not an edit made somewhere else.
+function onlyDrops(page, disk) {
+  const bag = (html) => {
+    const m = new Map();
+    for (const w of String(html || '').replace(/<[^>]*>/g, ' ').split(/\s+/)) if (w) m.set(w, (m.get(w) || 0) + 1);
+    return m;
+  };
+  const here = bag(page);
+  const there = bag(disk);
+  for (const [w, n] of there) if (n > (here.get(w) || 0)) return false;
+  for (const [w, n] of here) if (n > (there.get(w) || 0)) return true;
+  return false;
+}
+
 let refreshing = false;
 async function refreshFromDisk() {
   if (refreshing) return;
@@ -3729,43 +3778,109 @@ async function refreshFromDisk() {
     if (window.neo.refreshBook) await window.neo.refreshBook(bookId);
     const meta = await window.neo.readBookMeta(bookId);
     if (!book || book.id !== bookId || !meta) return;
-    const localDirty = book.chapterOrder.some((c) => chapterHTML[c] !== savedHTML[c]) ||
-      metaSig(book) !== savedMetaSig;
-    if (metaSig(meta) !== savedMetaSig) {
-      if (localDirty) return; // both sides restructured; ours stands, next save wins
-      // the other device added, renamed or moved chapters: reopen in place
-      const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
-      const tab = currentTab;
-      await openBook(bookId);
-      if (tab !== 'manuscript') switchTab(tab);
-      requestAnimationFrame(() => {
-        if (pos.chapterId && book && book.chapterOrder.includes(pos.chapterId)) currentChapterId = pos.chapterId;
-        $('#paper-scroll').scrollTop = pos.scroll;
-        highlightNav();
-      });
-      toast(t('Updated from your other device'));
-      return;
+
+    // First read everything that changed; the page is left alone until it is
+    // all in. (Deciding chapter by chapter between reads let a keystroke land
+    // on a page that no longer matched what NEO held, and reopening the book
+    // for a new book.json dropped whatever was typed while it loaded.)
+    const theirs = metaSig(meta) !== savedMetaSig && Array.isArray(meta.chapterOrder);
+    const sigHere = metaSig(book);
+    const mine = sigHere !== savedMetaSig; // restructured here too, not saved yet
+    const incoming = {}; // chapters new to this device
+    let side = null;
+    if (theirs) {
+      for (const chId of meta.chapterOrder) {
+        if (chapterHTML[chId] !== undefined) continue;
+        incoming[chId] = await window.neo.readChapter(bookId, chId);
+        if (!book || book.id !== bookId) return;
+      }
+      side = {
+        stickies: await window.neo.readJSON(bookId, 'stickies', stickies),
+        darlings: await window.neo.readJSON(bookId, 'darlings', darlings)
+      };
     }
-    let adopted = 0;
-    let conflicts = 0;
     // file times first, so only chapters that changed on disk are re-read
     // (a whole novel crossing the bridge every half minute is a hiccup)
     let stamps = null;
     if (window.neo.chapterStamps) {
       try { stamps = await window.neo.chapterStamps(bookId); } catch { stamps = null; }
-      if (!book || book.id !== bookId) return;
     }
+    const fresh = [];
     for (const chId of [...book.chapterOrder]) {
-      if (stamps) {
-        const st = stamps[chId];
-        if (st !== undefined && st === diskStamps[chId]) continue;
-        diskStamps[chId] = st;
-      }
+      if (writing[chId]) continue; // a save of ours is on its way: the file is ours, not news
+      const st = stamps ? stamps[chId] : undefined;
+      if (st !== undefined && st === diskStamps[chId]) continue;
+      const before = savedHTML[chId];
       const disk = await window.neo.readChapter(bookId, chId);
       if (!book || book.id !== bookId) return;
-      if (typeof disk !== 'string' || disk === savedHTML[chId]) continue;
+      fresh.push({ chId, st, before, disk });
+    }
+    if (!book || book.id !== bookId) return;
+
+    // Then decide it all in one go: nothing waits from here to the page.
+    let restructured = false;
+    if (theirs && metaSig(book) === sigHere) {
+      // The other device added, renamed or moved chapters. Whichever
+      // book.json stands, no chapter holding words is dropped: theirs keeps
+      // the chapters with unsaved words here, and ours (when this device
+      // restructured too and hasn't saved yet) takes in the chapters they wrote.
+      const order = [...(mine ? book.chapterOrder : meta.chapterOrder)];
+      const other = mine ? meta.chapterOrder : book.chapterOrder;
+      other.forEach((chId, i) => {
+        if (order.includes(chId)) return;
+        if (mine ? !/[^\s]/.test(String(incoming[chId] || '').replace(/<[^>]*>/g, '')) : chapterHTML[chId] === savedHTML[chId]) return;
+        const prev = other.slice(0, i).reverse().find((c) => order.includes(c));
+        order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, chId);
+      });
+      if (!mine || order.length !== book.chapterOrder.length) {
+        for (const chId of order) {
+          if (!(chId in incoming)) continue;
+          chapterHTML[chId] = incoming[chId];
+          savedHTML[chId] = incoming[chId];
+        }
+        if (mine) {
+          book.chapterOrder = order;
+        } else {
+          book = { ...meta, chapterOrder: order, lastPosition: book.lastPosition };
+          savedMetaSig = metaSig(meta);
+          stickies = side.stickies;
+          darlings = side.darlings;
+        }
+        if (metaSig(book) !== savedMetaSig) scheduleMetaSave();
+        if (!book.chapterOrder.includes(currentChapterId)) currentChapterId = null;
+        undoStack = []; // snapshots of the old structure must not replay over the new one
+        restructured = true;
+      }
+    }
+    let adopted = 0;
+    let conflicts = 0;
+    const replaced = []; // page text a disk copy would otherwise have taken away
+    for (const { chId, st, before, disk } of fresh) {
+      if (!book.chapterOrder.includes(chId)) continue;
+      // A save of ours crossed this read, so what came back can be older
+      // than the page. Taking it put the old text back on the page, and the
+      // next save made that stick. Look again next time.
+      if (writing[chId] || savedHTML[chId] !== before) continue;
+      if (typeof disk !== 'string') continue;
       if (disk === '' && savedHTML[chId]) continue; // unreadable or still downloading: not a change
+      if (stamps) diskStamps[chId] = st; // seen; a file not read stays on the list
+      if (disk === savedHTML[chId]) continue;
       if (chapterHTML[chId] === savedHTML[chId]) {
+        // A copy with nothing new in it, only fewer words, is an older copy
+        // coming back (or text cut on the other device): the page's version
+        // goes to Darlings instead of nowhere.
+        if (onlyDrops(chapterHTML[chId], disk)) {
+          const holder = document.createElement('div');
+          holder.innerHTML = chapterHTML[chId];
+          replaced.push({
+            id: 'd-' + Date.now().toString(36) + replaced.length,
+            html: chapterHTML[chId],
+            text: [...holder.children].map((p) => p.textContent).join('\n\n').slice(0, 2000),
+            chapterId: chId,
+            chapterLabel: t('Chapter {n}', { n: book.chapterOrder.indexOf(chId) + 1 }),
+            date: new Date().toISOString()
+          });
+        }
         chapterHTML[chId] = disk;
         savedHTML[chId] = disk;
         wordCache[chId] = null;
@@ -3785,15 +3900,31 @@ async function refreshFromDisk() {
         conflicts++;
       }
     }
-    if (adopted || conflicts) {
+    if (restructured || adopted || conflicts) {
       const caret = captureCaret();
       const keepScroll = $('#paper-scroll').scrollTop;
       renderChapters();
       $('#paper-scroll').scrollTop = keepScroll;
       if (caret) restoreCaret(caret);
+      if (restructured) {
+        const show = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+        show($('#tp-title'), isUntitled(book.title) ? '' : book.title);
+        show($('#tp-subtitle'), book.subtitle || '');
+        show($('#tp-author'), book.author || t('Anonymous'));
+        $$('.tab[data-tab="notes"]')[0].textContent = tabName('notes');
+        $$('.tab[data-tab="outline"]')[0].textContent = tabName('outline');
+        renderStickies();
+        if (currentTab === 'outline') renderOutline();
+      }
       updateCounters();
       scheduleNavRefresh();
+      if (replaced.length) {
+        darlings.unshift(...replaced);
+        window.neo.writeJSON(bookId, 'darlings', darlings);
+      }
+      if (currentTab === 'darlings' && (restructured || replaced.length)) renderDarlings();
       if (conflicts) toast(t('This chapter also changed on another device. That version is saved as the chapter after it.'), 8000);
+      else if (replaced.length) toast(t('Updated from your other device — the text it replaced is in Darlings'), 8000);
       else toast(t('Updated from your other device'));
     }
   } catch (err) {
@@ -4027,7 +4158,6 @@ let searchState = { matches: [], idx: -1, query: '' };
 
 function openSearch() {
   if ($('#editor-view').hidden || !book) { toast(t('Open a book first')); return; }
-  switchTab('manuscript');
   const sel = window.getSelection();
   const preset = sel && !sel.isCollapsed ? sel.toString().slice(0, 80).trim() : '';
   $('#searchbar').hidden = false;
@@ -4058,19 +4188,28 @@ function paintHighlights() {
   CSS.highlights.set('neo-search-current', cur);
 }
 
-// Scan the WHOLE book, first chapter to last, every time.
-// Matches are highlighted, not selected.
+// Find searches the tab you're in: the whole manuscript, first chapter to
+// last, or the Notes page, the outline's lines, the Darlings. Replace stays
+// with the manuscript, where ⌘Z can take a Replace All back.
+function searchRoots() {
+  if (currentTab === 'manuscript') return book.chapterOrder.map((chId) => document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`));
+  if (currentTab === 'outline') return $$('#outline-list .ol-text');
+  if (currentTab === 'darlings') return $$('#darlings-list .darling > :first-child');
+  return [$('#aux-editor')];
+}
+
+// Scan the whole tab every time. Matches are highlighted, not selected.
 function runSearch() {
   const q = $('#search-input').value;
-  searchState = { matches: [], idx: -1, query: q };
+  searchState = { matches: [], idx: -1, query: q, tab: currentTab };
+  $('#searchbar').classList.toggle('find-only', currentTab !== 'manuscript');
   if (!q) {
     $('#search-count').textContent = '';
     paintHighlights();
     return;
   }
   const ql = q.toLowerCase();
-  for (const chId of book.chapterOrder) {
-    const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  for (const body of searchRoots()) {
     if (!body) continue;
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
     let node;
@@ -4105,10 +4244,11 @@ function gotoMatch(i) {
 }
 
 function freshSearchIfStale() {
-  if (searchState.query !== $('#search-input').value) runSearch();
+  if (searchState.query !== $('#search-input').value || searchState.tab !== currentTab) runSearch();
 }
 
 function replaceCurrent() {
+  if (currentTab !== 'manuscript') return;
   freshSearchIfStale();
   if (!searchState.matches.length) { toast(t('No matches')); return; }
   if (searchState.idx < 0) searchState.idx = 0; // start from the very first match
@@ -4132,7 +4272,7 @@ function replaceCurrent() {
 // Every chapter, front to back
 function replaceAllMatches() {
   const q = $('#search-input').value;
-  if (!q) return;
+  if (!q || currentTab !== 'manuscript') return;
   snapshotStructure('replace all');
   const rep = $('#replace-input').value;
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
@@ -4174,7 +4314,7 @@ $('#search-input').addEventListener('keydown', (e) => {
       r.collapse(false);
       sel.removeAllRanges();
       sel.addRange(r);
-      const body = m.range.startContainer.parentElement.closest('.chapter-body');
+      const body = m.range.startContainer.parentElement.closest('[contenteditable="true"]');
       if (body) body.focus();
     }
   }
@@ -4456,11 +4596,28 @@ function showSpellMenu(x, y, word, suggestions, actions) {
 let typewriterEnabled = false;
 // The page needs empty room beneath its last line, or the caret can't be held
 // at the centre once the end of the draft scrolls into view (body.typewriter
-// deepens #paper's bottom margin; see styles.css).
+// deepens #paper's bottom margin; see styles.css). Only as much as the last
+// page's own blank paper doesn't already give: a page that is mostly blank
+// needs none, and a fixed 60vh left an empty scroll under it from line one.
 function applyTypewriter() {
   document.body.classList.toggle('typewriter', typewriterEnabled);
   if (window.neo.typewriterState) window.neo.typewriterState(typewriterEnabled); // the Format menu's tick
+  typewriterRoom();
 }
+function typewriterRoom() {
+  const paper = $('#paper');
+  const bodies = $$('#chapters .chapter-body');
+  const last = bodies[bodies.length - 1];
+  if (!typewriterEnabled || !last || paper.hidden) return;
+  const line = parseFloat(getComputedStyle(last).lineHeight) || 30;
+  // the last line must be able to rise to the writing height (45% of the
+  // window, as in the selectionchange handler below)
+  const below = paper.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom;
+  const room = $('#paper-scroll').clientHeight - window.innerHeight * 0.45 - below + line;
+  paper.style.setProperty('--typewriter-room', Math.max(120, Math.ceil(room)) + 'px');
+}
+new ResizeObserver(() => typewriterRoom()).observe($('#chapters'));
+window.addEventListener('resize', typewriterRoom);
 function toggleTypewriter() {
   typewriterEnabled = !typewriterEnabled;
   library.typewriter = typewriterEnabled;
@@ -4912,7 +5069,7 @@ function applyFonts() {
   reportViewState();
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
-  const zoom = Math.min(1.6, Math.max(0.75, library.pageZoom || 1));
+  const zoom = Math.min(3, Math.max(0.75, library.pageZoom || 1));
   document.documentElement.style.setProperty('--page-zoom', zoom);
   updateZoomDisplay();
 }
@@ -4992,7 +5149,9 @@ function updateZoomDisplay() {
   if (el) el.textContent = Math.round((library.pageZoom || 1) * 100) + '%';
 }
 function setPageZoom(next) {
-  next = Math.min(1.6, Math.max(0.75, next));
+  // up to 300%: on a large monitor 160% still read small. The page itself
+  // never grows past the window (max-width in styles.css), only the type does.
+  next = Math.min(3, Math.max(0.75, next));
   if (next === (library.pageZoom || 1)) return;
   library.pageZoom = next;
   document.documentElement.style.setProperty('--page-zoom', next);
@@ -5184,7 +5343,7 @@ function parasFromHtml(html) {
     const sceneBreak = p.classList.contains('scene-break');
     const poetry = p.classList.contains('poetry');
     const align = (p.style && p.style.textAlign) || '';
-    const runs = paraRuns(p.innerHTML).filter((r) => r.text);
+    const runs = paraRuns(p.innerHTML, true).filter((r) => r.text);
     const inner = runs.map((r) => {
       let t = escHtml(r.text);
       if (r.i) t = '<i>' + t + '</i>';
@@ -5279,6 +5438,40 @@ function buildMd(data) {
   return out;
 }
 
+// The Web Page and PDF read in the page's own typeface. A face NEO ships
+// (the @font-face rules in styles.css, the body fonts on Linux) travels
+// inside the file, so the PDF matches the page on any machine; a font the
+// computer has goes by name, with the same fallbacks as the page.
+const exportBodyFont = () => (getComputedStyle(document.documentElement).getPropertyValue('--body-font').trim() || 'Georgia, serif').replace(/[<>{};]/g, '');
+async function exportFontFaces(d) {
+  const family = exportBodyFont().split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const text = d.sections.map((ch) => ch.paras.map((p) => p.html).join('')).join('');
+  const italic = !!d.subtitle || /<i[\s>]/.test(text); // (the title is always bold)
+  const boldItalic = italic && /<b[\s>]/.test(text);
+  let css = '';
+  for (const sheet of document.styleSheets) {
+    let rules = [];
+    try { rules = [...sheet.cssRules]; } catch { continue; }
+    for (const r of rules) {
+      if (!(r instanceof CSSFontFaceRule)) continue;
+      if (r.style.getPropertyValue('font-family').replace(/["']/g, '').trim() !== family) continue;
+      const style = r.style.getPropertyValue('font-style') || 'normal';
+      const weight = r.style.getPropertyValue('font-weight') || '400';
+      if (style === 'italic' && !(parseInt(weight, 10) >= 600 ? boldItalic : italic)) continue;
+      const src = r.style.getPropertyValue('src').match(/url\(["']?([^"')]+)["']?\)\s*(format\([^)]*\))?/);
+      if (!src) continue;
+      try {
+        const bytes = new Uint8Array(await (await fetch(new URL(src[1], sheet.href || location.href))).arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const ext = src[1].split('.').pop().toLowerCase();
+        css += `@font-face { font-family: '${family}'; src: url(data:font/${ext};base64,${btoa(bin)}) ${src[2] || ''}; font-weight: ${weight}; font-style: ${style}; }\n`;
+      } catch { /* the name still stands, with its fallbacks */ }
+    }
+  }
+  return css;
+}
+
 function buildHtml(data, opts = {}) {
   const d = data || bookExportData();
   const total = d.sections.reduce((s, ch) => s + ch.paras.reduce((n, p) => n + countWords(p.text || ''), 0), 0);
@@ -5311,7 +5504,8 @@ function buildHtml(data, opts = {}) {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${escHtml(d.title)}</title>
 <style>
-  body { font-family: Georgia, serif; color: #1c1c1c; max-width: 620px; margin: 40px auto; line-height: 1.7; font-size: 13pt; }
+  ${opts.fonts || ''}
+  body { font-family: ${exportBodyFont()}; color: #1c1c1c; max-width: 620px; margin: 40px auto; line-height: 1.7; font-size: 13pt; }
   .coverpage { text-align: center; margin: 0 0 40px; page-break-after: always; }
   .coverpage img { display: block; margin: 0 auto; width: 100%; max-width: 620px; max-height: 95vh; object-fit: contain; }
   .titlepage { text-align: center; margin: 30vh 0 20vh; page-break-after: always; }
@@ -5346,8 +5540,11 @@ const escXml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-// Walk a paragraph's DOM and emit [{text, b, i}] so docx/epub get real bold/italic
-function paraRuns(pHtml) {
+// Walk a paragraph's DOM and emit [{text, b, i}] so docx/epub get real bold/italic.
+// In the manuscript an italic inside an italic is emphasis in a poetry
+// paragraph (itself one italic), and it is set upright, the typesetter's
+// way (flip). Pasted HTML often doubles its italics for nothing; not there.
+function paraRuns(pHtml, flip) {
   const holder = document.createElement('div');
   holder.innerHTML = pHtml;
   const runs = [];
@@ -5361,7 +5558,8 @@ function paraRuns(pHtml) {
           continue;
         }
         const tag = child.tagName;
-        walk(child, b || tag === 'B' || tag === 'STRONG', i || tag === 'I' || tag === 'EM');
+        const it = tag === 'I' || tag === 'EM';
+        walk(child, b || tag === 'B' || tag === 'STRONG', it ? (flip ? !i : true) : i);
       }
     }
   };
@@ -5643,7 +5841,7 @@ async function exportShelfAnthology(shelf) {
     let payload;
     if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
     else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
-    else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data) }) };
+    else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
     const saved = await window.neo.exportSave(payload);
     if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
   } catch (err) {
@@ -5668,7 +5866,10 @@ async function doExport(format) {
     else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
     else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
     else if (format === 'md') payload = { format, defaultName, content: buildMd() };
-    else payload = { format, defaultName, content: buildHtml(null, { cover: await exportCover(bookExportData()) }) };
+    else {
+      const data = bookExportData();
+      payload = { format, defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
+    }
     const saved = await window.neo.exportSave(payload);
     if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
   } catch (err) {
@@ -5740,11 +5941,12 @@ async function doEmailDraft() {
       ? t('The PDF snapshot is in the Finder window NEO just opened — drag it into this email before sending.')
       : t('PDF snapshot attached.'));
   toast(t('Preparing your draft…'));
+  const snapshot = bookExportData();
   const res = await window.neo.emailDraft({
     to: library.emailAddress,
     subject,
     body,
-    html: buildHtml(null, { stamp: true }), // the email snapshot is a provenance record
+    html: buildHtml(snapshot, { stamp: true, fonts: await exportFontFaces(snapshot) }), // the email snapshot is a provenance record
     defaultName: safeName(book.title),
     method: library.emailMethod
   });
@@ -5876,6 +6078,9 @@ async function showAbout() {
 }
 
 window.neo.onMenu(async (msg) => {
+  // full screen and focus mode together hide the bottom bar until hovered
+  // (styles.css); the window says when it goes in and out, whatever is open
+  if (msg.type === 'fullScreen') { document.body.classList.toggle('full-screen', !!msg.value); return; }
   if ($('#keyboard-shortcuts') && msg.type !== 'help') return;
   if (msg.type === 'help') showHelp();
   if (msg.type === 'about') showAbout();
