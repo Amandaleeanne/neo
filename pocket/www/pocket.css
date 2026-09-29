@@ -68,7 +68,21 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
 #counters { display: none !important; }
 #bottombar { display: flex; align-items: center; }
 #bottombar button, #tabs .tab { line-height: 1; }
-#back-to-shelf { font-size: 15px; padding: 0 10px; }
+#back-to-shelf { font-size: 15px; padding: 0 10px; white-space: nowrap; }
+/* A phone is narrower than the four tabs: they scroll sideways in their own
+   strip, so ☰, Shelf and ⋯ (Format and the Night/Paper page) stay on screen.
+   Before, the tabs pushed ⋯ off the right edge on a phone. */
+#tabs { min-width: 0; overflow-x: auto; justify-content: safe center; scrollbar-width: none; }
+#tabs::-webkit-scrollbar { display: none; }
+#tabs .tab { flex: none; }
+@media (max-width: 600px) {
+  #bottombar { gap: 6px; padding: 0 6px; }
+  .tab { padding: 12px 10px; }
+  .tab.darlings { margin-left: 6px; }
+  /* and the ⋯ sheet's rows wrap rather than run off the edge */
+  .pm-label { flex-basis: 100px; }
+  .pm-seg { flex-wrap: wrap; }
+}
 
 /* a long shelf on a tablet: each cover paints on its own, and the shadows
    are lighter work for the compositor */
