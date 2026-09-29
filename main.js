@@ -1022,11 +1022,14 @@ function createWindow() {
   // NEO's toggle left the bar hidden for good. Run a tick later, after
   // Electron's own show/hide, so this has the last word.
   const fullScreenChanged = (full) => setImmediate(() => {
-    if (win.isDestroyed() || process.platform === 'darwin') return;
+    if (win.isDestroyed()) return;
+    win.webContents.send('menu', { type: 'fullScreen', value: full }); // the page's bottom bar too
+    if (process.platform === 'darwin') return;
     win.setMenuBarVisibility(!full && !win.isMenuBarAutoHide());
   });
   win.on('enter-full-screen', () => fullScreenChanged(true));
   win.on('leave-full-screen', () => fullScreenChanged(false));
+  win.webContents.on('did-finish-load', () => { if (win.isFullScreen()) fullScreenChanged(true); });
   const remember = () => {
     if (win.isDestroyed() || win.isFullScreen() || win.isMinimized()) return;
     writeSettings({ ...readSettings(), window: win.getNormalBounds() });

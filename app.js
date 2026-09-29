@@ -5923,6 +5923,9 @@ async function showAbout() {
 }
 
 window.neo.onMenu(async (msg) => {
+  // full screen and focus mode together hide the bottom bar until hovered
+  // (styles.css); the window says when it goes in and out, whatever is open
+  if (msg.type === 'fullScreen') { document.body.classList.toggle('full-screen', !!msg.value); return; }
   if ($('#keyboard-shortcuts') && msg.type !== 'help') return;
   if (msg.type === 'help') showHelp();
   if (msg.type === 'about') showAbout();

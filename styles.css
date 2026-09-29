@@ -716,6 +716,9 @@ body.bright .spell-menu button { color: #eee; }
   opacity: 0.35; transition: opacity 0.15s ease;
 }
 #bottombar:hover, #bottombar.attn { opacity: 1; }
+/* full screen plus focus mode: nothing on screen but the page; the bar
+   comes back when the pointer reaches the bottom edge */
+body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
 #back-to-shelf {
   background: none; border: none; color: var(--muted); font-size: 12px;
 }
