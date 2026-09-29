@@ -2597,8 +2597,7 @@ function renderStickies() {
     ta.value = s.text;
     ta.addEventListener('input', () => {
       s.text = ta.value;
-      clearTimeout(saveTimers.stickies);
-      saveTimers.stickies = setTimeout(() => window.neo.writeJSON(book.id, 'stickies', stickies), 600);
+      scheduleStickiesSave();
     });
     ta.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || e.shiftKey) return; // Shift+Enter: another line in the note
@@ -2612,6 +2611,27 @@ function renderStickies() {
     el.querySelector('.s-done').onclick = () => resolveSticky(s.id);
     wrap.appendChild(el);
   }
+}
+
+// A note is saved a moment after the last keystroke. The save belongs to the
+// book it was typed in: leaving the book (Esc to the shelf) writes it at once
+// instead of letting the timer find no book, which lost the note's text.
+function scheduleStickiesSave() {
+  if (!book) return;
+  const bookId = book.id;
+  const list = stickies;
+  clearTimeout(saveTimers.stickies);
+  saveTimers.stickies = setTimeout(() => {
+    delete saveTimers.stickies;
+    window.neo.writeJSON(bookId, 'stickies', list);
+  }, 600);
+}
+
+function flushStickiesSave() {
+  if (!saveTimers.stickies || !book) return;
+  clearTimeout(saveTimers.stickies);
+  delete saveTimers.stickies;
+  window.neo.writeJSON(book.id, 'stickies', stickies);
 }
 
 // Pair every mark in the manuscript with a note: pasted duplicates get their
@@ -3765,6 +3785,7 @@ function flushAllSaves() {
     }
   }
   flushAux();
+  flushStickiesSave();
   if (moved || metaSig(book) !== savedMetaSig) saveMeta();
 }
 
