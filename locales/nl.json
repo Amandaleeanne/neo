@@ -48,7 +48,7 @@
   "Books in your library that aren’t on a shelf": "Boeken in je bibliotheek die op geen enkele plank staan",
   "Books move to another shelf. Nothing is deleted from disk.": "De boeken gaan naar een andere plank. Er wordt niets van de schijf verwijderd.",
   "Brief": "Samenvatting",
-  "Brighter Interface": "Verhoogd contrast",
+  "Brighter Interface": "Lichtere interface",
   "Bring All to Front": "Alles naar voren halen",
   "Bring your manuscripts home": "Haal je manuscripten naar huis",
   "by {author}": "door {author}",
@@ -500,13 +500,13 @@
   "Keyboard Shortcuts…": "Sneltoetsen…",
   "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Met Shift terug. Esc gaat terug naar de pagina. Op de boekenplank: de boeken, dan de kop.",
   "Chapters": "Hoofdstukken",
-  "Interface Size": "Grootte van de interface",
-  "Larger (150%)": "Groter (150%)",
-  "Large (125%)": "Groot (125%)",
-  "Largest (200%)": "Grootst (200%)",
   "Move between the page, the chapters, the notes and the bottom bar": "Wisselen tussen pagina, hoofdstukken, notities en onderbalk",
-  "Normal": "Normaal",
   "Outline note": "Notitie bij het plan",
   "Title": "Titel",
-  "Words written over the last 30 days": "Geschreven woorden in de afgelopen 30 dagen"
+  "Words written over the last 30 days": "Geschreven woorden in de afgelopen 30 dagen",
+  "Interface Size": "Grootte van de interface",
+  "Normal": "Normaal",
+  "Large (125%)": "Groot (125%)",
+  "Larger (150%)": "Groter (150%)",
+  "Largest (200%)": "Grootst (200%)"
 }

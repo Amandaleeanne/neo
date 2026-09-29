@@ -49,7 +49,7 @@
   "Books in your library that aren’t on a shelf": "Libros de tu biblioteca que no están en ninguna estantería",
   "Books move to another shelf. Nothing is deleted from disk.": "Los libros pasan a otra estantería. No se borra nada del disco.",
   "Brief": "Resumen",
-  "Brighter Interface": "Contraste reforzado",
+  "Brighter Interface": "Interfaz más clara",
   "Bring All to Front": "Traer todo al frente",
   "Bring your manuscripts home": "Trae tus manuscritos a casa",
   "by {author}": "de {author}",
@@ -504,13 +504,13 @@
   "Keyboard Shortcuts…": "Atajos de teclado…",
   "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Con Mayúsculas, hacia atrás. Esc vuelve a la página. En la biblioteca: los libros y luego la cabecera.",
   "Chapters": "Capítulos",
-  "Interface Size": "Tamaño de la interfaz",
-  "Larger (150%)": "Más grande (150 %)",
-  "Large (125%)": "Grande (125 %)",
-  "Largest (200%)": "Máximo (200 %)",
   "Move between the page, the chapters, the notes and the bottom bar": "Pasar de la página a los capítulos, las notas y la barra inferior",
-  "Normal": "Normal",
   "Outline note": "Nota del esquema",
   "Title": "Título",
-  "Words written over the last 30 days": "Palabras escritas en los últimos 30 días"
+  "Words written over the last 30 days": "Palabras escritas en los últimos 30 días",
+  "Interface Size": "Tamaño de la interfaz",
+  "Normal": "Normal",
+  "Large (125%)": "Grande (125 %)",
+  "Larger (150%)": "Más grande (150 %)",
+  "Largest (200%)": "Máximo (200 %)"
 }

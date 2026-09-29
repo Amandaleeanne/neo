@@ -1021,7 +1021,7 @@ $('#add-shelf-btn').onclick = async () => {
   const shelves = $$('#shelves .shelf');
   const last = shelves[shelves.length - 1];
   if (last) {
-    last.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    last.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     const label = last.querySelector('.shelf-label');
     if (label) setTimeout(() => {
       if (NO_HOVER) { label.click(); return; }
@@ -2697,8 +2697,8 @@ function renderNav() {
   navRefreshPending = false;
   const list = $('#nav-list');
   // a keyboard user on a chapter row keeps their place through the rebuild
-  const focusedRow = document.activeElement && document.activeElement.classList.contains('n-row')
-    ? document.activeElement.closest('.nav-item').dataset.id : null;
+  const focusedRow = document.activeElement && document.activeElement.classList.contains('n-row') &&
+    document.activeElement.matches(':focus-visible') ? document.activeElement.closest('.nav-item').dataset.id : null;
   list.innerHTML = '';
   book.chapterNotes = book.chapterNotes || {};
   book.chapterOrder.forEach((chId, i) => {
@@ -4711,7 +4711,7 @@ let focusLevel = 'off';
 // the View menu's ticks (focus level, page, brighter interface) follow the page
 function reportViewState() {
   if (!window.neo.viewState || !library) return;
-  window.neo.viewState({ focus: focusLevel, pageTheme: library.pageTheme || 'night', uiBright: !!library.uiBright });
+  window.neo.viewState({ focus: focusLevel, pageTheme: library.pageTheme || 'night', uiBright: document.body.classList.contains('bright') });
 }
 
 function applyFocus() {
@@ -5103,12 +5103,14 @@ function applyFonts() {
   }
   document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
-  // the system's "Increase contrast" turns it on too
-  document.body.classList.toggle('bright', !!library.uiBright || SYSTEM_CONTRAST.matches);
+  // the system's "Increase contrast" turns it on too, until the writer
+  // chooses in the View menu
+  document.body.classList.toggle('bright', library.uiBright === undefined ? SYSTEM_CONTRAST.matches : !!library.uiBright);
   reportViewState();
   // View → Interface Size: everything but the page
   const uiZoom = [1, 1.25, 1.5, 2].includes(library.uiZoom) ? library.uiZoom : 1;
   document.documentElement.style.setProperty('--ui-zoom', uiZoom);
+  document.documentElement.classList.toggle('ui-zoomed', uiZoom > 1);
   if (window.neo.uiZoomState) window.neo.uiZoomState(uiZoom);
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
@@ -6168,7 +6170,7 @@ window.neo.onMenu(async (msg) => {
     applyFonts();
   }
   if (msg.type === 'uiBright') {
-    library.uiBright = !library.uiBright;
+    library.uiBright = !document.body.classList.contains('bright');
     await window.neo.writeLibrary(library);
     applyFonts();
   }
@@ -6292,6 +6294,16 @@ function pressable(el, label) {
 }
 for (const id of ['#author-chip', '#goal-counter', '#word-counter', '#zoom-level']) pressable($(id));
 
+// The mouse leaves nothing focused in the quiet chrome, as before these were
+// focusable: after a click on a book, a chapter row, a tab, a counter or a
+// button there, the writer's next keys don't press it again, wake the bottom
+// bar or slide a pane open. (Text fields keep focus; they always show it.)
+document.addEventListener('mouseup', () => {
+  const el = document.activeElement;
+  if (!el || el === document.body || el.matches(':focus-visible') || el.closest('.modal-backdrop')) return;
+  if (el.closest('#bottombar, #nav-pane, #side-pane, #shelf-header, #shelves')) el.blur();
+}, true);
+
 // the tabs: Enter or Space opens one, ← → move along the row
 $$('.tab').forEach((tab, i, all) => {
   tab.addEventListener('keydown', (e) => {
@@ -6308,7 +6320,10 @@ $$('.tab').forEach((tab, i, all) => {
 // Enter reach them) and comes back to where it was when they close.
 let focusBeforeDialog = null;
 document.addEventListener('focusin', (e) => {
-  if (!e.target.closest('.modal-backdrop')) focusBeforeDialog = e.target;
+  if (e.target.closest('.modal-backdrop')) return;
+  // only what the keyboard reached gets focus back when a dialog closes; after
+  // a click, the next Space the writer types must not press that control again
+  focusBeforeDialog = e.target.matches(':focus-visible') ? e.target : null;
 }, true);
 function dialogify(bd) {
   const box = bd.querySelector('.modal');
@@ -6423,7 +6438,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Esc from a pane or the bottom bar: back to the words, not to the shelf
-  if (e.key === 'Escape' && here > 0 && $('#searchbar').hidden) {
+  if (e.key === 'Escape' && !e.isComposing && here > 0 && $('#searchbar').hidden) {
     e.preventDefault();
     e.stopPropagation();
     focusPage();
