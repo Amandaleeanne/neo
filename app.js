@@ -2185,8 +2185,8 @@ document.addEventListener('selectionchange', () => {
 // spans — so every block boundary and <br> becomes a paragraph break, and
 // styling that only lives in a style attribute is read as bold/italic.
 function cleanPasteHtml(html) {
-  const holder = document.createElement('div');
-  holder.innerHTML = html;
+  // parsed off to the side: nothing in a clipboard loads or runs
+  const holder = new DOMParser().parseFromString(html, 'text/html').body;
   holder.querySelectorAll('script,style,meta,link,img,table,head,title').forEach((n) => n.remove());
   // Google Docs wraps the whole clipboard in <b style="font-weight:normal">
   holder.querySelectorAll('b, strong').forEach((b) => {
@@ -5550,7 +5550,7 @@ const escXml = (s) => String(s)
 // paragraph (itself one italic), and it is set upright, the typesetter's
 // way (flip). Pasted HTML often doubles its italics for nothing; not there.
 function paraRuns(pHtml, flip) {
-  const holder = document.createElement('div');
+  const holder = document.createElement('template'); // inert: nothing loads or runs
   holder.innerHTML = pHtml;
   const runs = [];
   const walk = (node, b, i) => {
@@ -5568,7 +5568,7 @@ function paraRuns(pHtml, flip) {
       }
     }
   };
-  walk(holder, false, false);
+  walk(holder.content, false, false);
   return runs;
 }
 
