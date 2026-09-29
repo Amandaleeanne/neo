@@ -842,7 +842,7 @@ async function buildZip(zipEntries) {
   });
 }
 
-ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntries }) => {
+ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntries, base64 }) => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     defaultPath: path.join(os.homedir(), 'Documents', defaultName + '.' + format),
@@ -852,6 +852,9 @@ ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntr
   try {
     if (zipEntries) {
       fs.writeFileSync(filePath, await buildZip(zipEntries));
+    } else if (base64) {
+      // pictures (a saved cover) arrive as base64
+      fs.writeFileSync(filePath, Buffer.from(content, 'base64'));
     } else if (format === 'pdf') {
       fs.writeFileSync(filePath, await renderPDF(content));
     } else {
