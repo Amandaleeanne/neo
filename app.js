@@ -55,6 +55,7 @@ let chapterHTML = {};        // chapterId -> html (loaded at open)
 let savedHTML = {};          // chapterId -> html as last read from / written to disk
 let savedMetaSig = '';       // book.json as last read/written, minus the volatile bits
 let diskStamps = {};         // chapterId -> file mtime as of the last look at the disk
+let writing = {};            // chapterId -> chapter writes still on their way to disk
 let stickies = [];           // [{id, chapterId, text, resolved}]
 let darlings = [];           // [{id, html, text, chapterId, chapterLabel, date}]
 let currentTab = 'manuscript';
@@ -3606,8 +3607,16 @@ $('#paper-scroll').addEventListener('scroll', () => {
 function persistChapter(chId, html) {
   if (!book) return Promise.resolve(false);
   if (html === undefined) html = chapterHTML[chId] || '';
+  const before = savedHTML[chId];
   savedHTML[chId] = html;
-  return window.neo.writeChapter(book.id, chId, html);
+  writing[chId] = (writing[chId] || 0) + 1;
+  return new Promise((resolve) => resolve(window.neo.writeChapter(book.id, chId, html))).catch((err) => {
+    // It never reached the disk. Book it as unsaved again, so the next flush
+    // tries once more, and so a look at the disk can't take the old file
+    // for news and put it back on the page.
+    if (savedHTML[chId] === html) savedHTML[chId] = before;
+    throw err;
+  }).finally(() => { writing[chId]--; });
 }
 
 function scheduleChapterSave(chId) {
@@ -3672,6 +3681,21 @@ function flushAllSaves() {
 /*  nothing is ever lost quietly.                                      */
 /* ================================================================== */
 
+// True when the disk copy of a chapter has no word the page lacks, but the
+// page has words it lacks: an older copy, not an edit made somewhere else.
+function onlyDrops(page, disk) {
+  const bag = (html) => {
+    const m = new Map();
+    for (const w of String(html || '').replace(/<[^>]*>/g, ' ').split(/\s+/)) if (w) m.set(w, (m.get(w) || 0) + 1);
+    return m;
+  };
+  const here = bag(page);
+  const there = bag(disk);
+  for (const [w, n] of there) if (n > (here.get(w) || 0)) return false;
+  for (const [w, n] of here) if (n > (there.get(w) || 0)) return true;
+  return false;
+}
+
 let refreshing = false;
 async function refreshFromDisk() {
   if (refreshing) return;
@@ -3695,43 +3719,109 @@ async function refreshFromDisk() {
     if (window.neo.refreshBook) await window.neo.refreshBook(bookId);
     const meta = await window.neo.readBookMeta(bookId);
     if (!book || book.id !== bookId || !meta) return;
-    const localDirty = book.chapterOrder.some((c) => chapterHTML[c] !== savedHTML[c]) ||
-      metaSig(book) !== savedMetaSig;
-    if (metaSig(meta) !== savedMetaSig) {
-      if (localDirty) return; // both sides restructured; ours stands, next save wins
-      // the other device added, renamed or moved chapters: reopen in place
-      const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
-      const tab = currentTab;
-      await openBook(bookId);
-      if (tab !== 'manuscript') switchTab(tab);
-      requestAnimationFrame(() => {
-        if (pos.chapterId && book && book.chapterOrder.includes(pos.chapterId)) currentChapterId = pos.chapterId;
-        $('#paper-scroll').scrollTop = pos.scroll;
-        highlightNav();
-      });
-      toast(t('Updated from your other device'));
-      return;
+
+    // First read everything that changed; the page is left alone until it is
+    // all in. (Deciding chapter by chapter between reads let a keystroke land
+    // on a page that no longer matched what NEO held, and reopening the book
+    // for a new book.json dropped whatever was typed while it loaded.)
+    const theirs = metaSig(meta) !== savedMetaSig && Array.isArray(meta.chapterOrder);
+    const sigHere = metaSig(book);
+    const mine = sigHere !== savedMetaSig; // restructured here too, not saved yet
+    const incoming = {}; // chapters new to this device
+    let side = null;
+    if (theirs) {
+      for (const chId of meta.chapterOrder) {
+        if (chapterHTML[chId] !== undefined) continue;
+        incoming[chId] = await window.neo.readChapter(bookId, chId);
+        if (!book || book.id !== bookId) return;
+      }
+      side = {
+        stickies: await window.neo.readJSON(bookId, 'stickies', stickies),
+        darlings: await window.neo.readJSON(bookId, 'darlings', darlings)
+      };
     }
-    let adopted = 0;
-    let conflicts = 0;
     // file times first, so only chapters that changed on disk are re-read
     // (a whole novel crossing the bridge every half minute is a hiccup)
     let stamps = null;
     if (window.neo.chapterStamps) {
       try { stamps = await window.neo.chapterStamps(bookId); } catch { stamps = null; }
-      if (!book || book.id !== bookId) return;
     }
+    const fresh = [];
     for (const chId of [...book.chapterOrder]) {
-      if (stamps) {
-        const st = stamps[chId];
-        if (st !== undefined && st === diskStamps[chId]) continue;
-        diskStamps[chId] = st;
-      }
+      if (writing[chId]) continue; // a save of ours is on its way: the file is ours, not news
+      const st = stamps ? stamps[chId] : undefined;
+      if (st !== undefined && st === diskStamps[chId]) continue;
+      const before = savedHTML[chId];
       const disk = await window.neo.readChapter(bookId, chId);
       if (!book || book.id !== bookId) return;
-      if (typeof disk !== 'string' || disk === savedHTML[chId]) continue;
+      fresh.push({ chId, st, before, disk });
+    }
+    if (!book || book.id !== bookId) return;
+
+    // Then decide it all in one go: nothing waits from here to the page.
+    let restructured = false;
+    if (theirs && metaSig(book) === sigHere) {
+      // The other device added, renamed or moved chapters. Whichever
+      // book.json stands, no chapter holding words is dropped: theirs keeps
+      // the chapters with unsaved words here, and ours (when this device
+      // restructured too and hasn't saved yet) takes in the chapters they wrote.
+      const order = [...(mine ? book.chapterOrder : meta.chapterOrder)];
+      const other = mine ? meta.chapterOrder : book.chapterOrder;
+      other.forEach((chId, i) => {
+        if (order.includes(chId)) return;
+        if (mine ? !/[^\s]/.test(String(incoming[chId] || '').replace(/<[^>]*>/g, '')) : chapterHTML[chId] === savedHTML[chId]) return;
+        const prev = other.slice(0, i).reverse().find((c) => order.includes(c));
+        order.splice(prev ? order.indexOf(prev) + 1 : 0, 0, chId);
+      });
+      if (!mine || order.length !== book.chapterOrder.length) {
+        for (const chId of order) {
+          if (!(chId in incoming)) continue;
+          chapterHTML[chId] = incoming[chId];
+          savedHTML[chId] = incoming[chId];
+        }
+        if (mine) {
+          book.chapterOrder = order;
+        } else {
+          book = { ...meta, chapterOrder: order, lastPosition: book.lastPosition };
+          savedMetaSig = metaSig(meta);
+          stickies = side.stickies;
+          darlings = side.darlings;
+        }
+        if (metaSig(book) !== savedMetaSig) scheduleMetaSave();
+        if (!book.chapterOrder.includes(currentChapterId)) currentChapterId = null;
+        undoStack = []; // snapshots of the old structure must not replay over the new one
+        restructured = true;
+      }
+    }
+    let adopted = 0;
+    let conflicts = 0;
+    const replaced = []; // page text a disk copy would otherwise have taken away
+    for (const { chId, st, before, disk } of fresh) {
+      if (!book.chapterOrder.includes(chId)) continue;
+      // A save of ours crossed this read, so what came back can be older
+      // than the page. Taking it put the old text back on the page, and the
+      // next save made that stick. Look again next time.
+      if (writing[chId] || savedHTML[chId] !== before) continue;
+      if (typeof disk !== 'string') continue;
       if (disk === '' && savedHTML[chId]) continue; // unreadable or still downloading: not a change
+      if (stamps) diskStamps[chId] = st; // seen; a file not read stays on the list
+      if (disk === savedHTML[chId]) continue;
       if (chapterHTML[chId] === savedHTML[chId]) {
+        // A copy with nothing new in it, only fewer words, is an older copy
+        // coming back (or text cut on the other device): the page's version
+        // goes to Darlings instead of nowhere.
+        if (onlyDrops(chapterHTML[chId], disk)) {
+          const holder = document.createElement('div');
+          holder.innerHTML = chapterHTML[chId];
+          replaced.push({
+            id: 'd-' + Date.now().toString(36) + replaced.length,
+            html: chapterHTML[chId],
+            text: [...holder.children].map((p) => p.textContent).join('\n\n').slice(0, 2000),
+            chapterId: chId,
+            chapterLabel: t('Chapter {n}', { n: book.chapterOrder.indexOf(chId) + 1 }),
+            date: new Date().toISOString()
+          });
+        }
         chapterHTML[chId] = disk;
         savedHTML[chId] = disk;
         wordCache[chId] = null;
@@ -3751,15 +3841,31 @@ async function refreshFromDisk() {
         conflicts++;
       }
     }
-    if (adopted || conflicts) {
+    if (restructured || adopted || conflicts) {
       const caret = captureCaret();
       const keepScroll = $('#paper-scroll').scrollTop;
       renderChapters();
       $('#paper-scroll').scrollTop = keepScroll;
       if (caret) restoreCaret(caret);
+      if (restructured) {
+        const show = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+        show($('#tp-title'), isUntitled(book.title) ? '' : book.title);
+        show($('#tp-subtitle'), book.subtitle || '');
+        show($('#tp-author'), book.author || t('Anonymous'));
+        $$('.tab[data-tab="notes"]')[0].textContent = tabName('notes');
+        $$('.tab[data-tab="outline"]')[0].textContent = tabName('outline');
+        renderStickies();
+        if (currentTab === 'outline') renderOutline();
+      }
       updateCounters();
       scheduleNavRefresh();
+      if (replaced.length) {
+        darlings.unshift(...replaced);
+        window.neo.writeJSON(bookId, 'darlings', darlings);
+      }
+      if (currentTab === 'darlings' && (restructured || replaced.length)) renderDarlings();
       if (conflicts) toast(t('This chapter also changed on another device. That version is saved as the chapter after it.'), 8000);
+      else if (replaced.length) toast(t('Updated from your other device — the text it replaced is in Darlings'), 8000);
       else toast(t('Updated from your other device'));
     }
   } catch (err) {
