@@ -2264,7 +2264,7 @@ function smartKeys(e, body) {
     e.preventDefault();
     const before = prevChars(1);
     const opening = before === '' || /[\s\(\[\{—‘“«„>]/.test(before);
-    const q = quoteStyle();
+    const q = e.key === '"' ? bookQuotes(body) : quoteStyle();
     let ch;
     if (e.key === "'") {
       // most languages type ' as an apostrophe only; English and Dutch also
@@ -2296,6 +2296,25 @@ function writingLanguage() {
 function quoteStyle() {
   const code = writingLanguage();
   return QUOTE_STYLES[code] || QUOTE_STYLES[code.split('-')[0]] || QUOTE_STYLES.en;
+}
+// …unless the book has settled on guillemets its language doesn't use:
+// German novels often set »…« where the language says „…“, Swiss writing
+// «…». Whichever mark opens the most quotes wins — in this chapter, or in
+// the book when the chapter has none yet — so a » typed by hand once is
+// enough to carry on in that style.
+function bookQuotes(el) {
+  const q = quoteStyle();
+  const opens = (text) => {
+    const n = (re) => (text.match(re) || []).length;
+    const own = q.open.trim();
+    return { '»': n(/»(?=[\p{L}\p{N}])/gu), '«': own === '«' ? 0 : n(/«(?=[\p{L}\p{N}])/gu), own: n(new RegExp(own + '\\s?(?=[\\p{L}\\p{N}])', 'gu')) };
+  };
+  const body = el && el.closest ? el.closest('.chapter-body') : null;
+  let c = opens(body ? body.textContent : '');
+  if (!c['»'] && !c['«'] && !c.own && book) c = opens(book.chapterOrder.map((id) => chapterHTML[id] || '').join(' '));
+  if (c['»'] > c.own && c['»'] >= c['«']) return { open: '»', close: '«' };
+  if (c['«'] > c.own && c['«'] > c['»']) return { open: '«', close: '»' };
+  return q;
 }
 
 // French typographic rules apply when the book is spellchecked in French,
