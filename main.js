@@ -1098,13 +1098,16 @@ async function loadSpellDictionary(code) {
 }
 
 function initSpell() {
-  const library = readJSON(LIBRARY_FILE, {});
+  const saved = readJSON(LIBRARY_FILE, null);
+  const readable = !!saved && typeof saved === 'object' && !Array.isArray(saved);
+  const library = readable ? saved : {};
   // Resolve this once, before the renderer reads the library. Keep an
   // explicit choice even with Romanian menus, and keep other locales'
-  // existing default and quotation-mark fallback unchanged.
+  // existing default and quotation-mark fallback unchanged. A library.json
+  // that doesn't parse is left exactly as it is: never rewritten from here.
   if (!library.spellLanguage && uiLanguage === 'ro') {
     library.spellLanguage = 'ro';
-    writeJSON(LIBRARY_FILE, library);
+    if (readable) writeJSON(LIBRARY_FILE, library);
   }
   spellLanguage = SPELL_LANGUAGES[library.spellLanguage] ? library.spellLanguage : 'en-US';
   loadSpellDictionary(spellLanguage);

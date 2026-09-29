@@ -165,9 +165,9 @@ test('learning a Romanian word removes cached Unicode-variant underlines across 
 // Run the real main-process startup functions against a temporary library.
 // Only Electron's window/worker APIs are replaced; settings and library IO
 // use the same code and files as the app.
-function mainContext(temp, systemLocale, settings = {}, library = {}) {
+function mainContext(temp, systemLocale, settings = {}, library = {}, raw = null) {
   fs.writeFileSync(path.join(temp, 'settings.json'), JSON.stringify(settings));
-  fs.writeFileSync(path.join(temp, 'library.json'), JSON.stringify(library));
+  fs.writeFileSync(path.join(temp, 'library.json'), raw === null ? JSON.stringify(library) : raw);
   const loads = [], handlers = new Map();
   let receive;
   const electron = {
@@ -236,4 +236,10 @@ test('Romanian default is persisted before the renderer reads; explicit choices 
     assert.equal(existing.read().spellLanguage, undefined); // preserve quotation fallback to UI language
     await Promise.resolve();
   }
+  // a library.json that doesn't parse is never overwritten by the default
+  const broken = '{"shelves": [{"id": "shelf-1", "name": "Mine"';
+  const unreadable = mainContext(temp, 'ro_RO', {}, {}, broken);
+  assert.equal(fs.readFileSync(path.join(temp, 'library.json'), 'utf8'), broken);
+  assert.equal(unreadable.loads[0].language, 'ro');
+  await Promise.resolve();
 });
