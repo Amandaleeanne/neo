@@ -50,7 +50,7 @@
   "Books in your library that aren’t on a shelf": "Książki z twojej biblioteki, których nie ma na żadnej półce",
   "Books move to another shelf. Nothing is deleted from disk.": "Książki trafią na inną półkę. Nic nie zostanie usunięte z dysku.",
   "Brief": "Streszczenie",
-  "Brighter Interface": "Jaśniejszy interfejs",
+  "Brighter Interface": "Zwiększony kontrast",
   "Bring All to Front": "Przenieś wszystko na wierzch",
   "Bring your manuscripts home": "Sprowadź swoje rękopisy do domu",
   "by {author}": "{author}",
@@ -532,5 +532,16 @@
   "Control": "Control",
   "or": "lub",
   "Chapter Titles Only": "Tylko tytuły rozdziałów",
-  "Keyboard Shortcuts…": "Skróty klawiszowe…"
+  "Keyboard Shortcuts…": "Skróty klawiszowe…",
+  "Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.": "Z Shift wstecz. Esc wraca do strony. Na półce: książki, potem nagłówek.",
+  "Chapters": "Rozdziały",
+  "Interface Size": "Rozmiar interfejsu",
+  "Larger (150%)": "Większy (150 %)",
+  "Large (125%)": "Duży (125 %)",
+  "Largest (200%)": "Największy (200 %)",
+  "Move between the page, the chapters, the notes and the bottom bar": "Przechodź między stroną, rozdziałami, notatkami i dolnym paskiem",
+  "Normal": "Normalny",
+  "Outline note": "Notatka planu",
+  "Title": "Tytuł",
+  "Words written over the last 30 days": "Słowa napisane w ostatnich 30 dniach"
 }

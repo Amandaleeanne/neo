@@ -19,6 +19,8 @@ function applyStaticI18n(root = document) {
   root.querySelectorAll('[data-i18n-title]').forEach((el) => { if (el.title) el.title = t(el.title); });
   root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.placeholder); });
   root.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.dataset.ph = t(el.dataset.ph); });
+  // names for screen readers, where a symbol or a placeholder is all the eye gets
+  root.querySelectorAll('[data-i18n-label]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nLabel)); });
   // hints that styles.css draws with ::before read these custom properties
   const cssHints = {
     '--ph-add-title': t('add a title'),
@@ -627,6 +629,7 @@ async function renderShelves() {
     blank.textContent = '+';
     blank.title = t('Start a new book');
     blank.onclick = () => createBookOnShelf(shelf);
+    pressable(blank, t('Start a new book'));
     row.appendChild(blank);
 
     sec.appendChild(label);
@@ -732,6 +735,8 @@ function bookTile(meta) {
     ? t('{title} — {count} / {goal} words', { title: meta.title, count: meta.wordCount || 0, goal: meta.wordGoal })
     : meta.title;
   el.onclick = () => openBook(meta.id);
+  pressable(el, [el.title, meta.author ? t('by {author}', { author: meta.author }) : ''].filter(Boolean).join(', '));
+  el.querySelector('.b-refresh').setAttribute('aria-hidden', 'true'); // the book's right-click menu offers the same
   el.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('application/x-neo-book', meta.id);
     // the ghost that rides under the cursor is a faded, smaller cover, held
@@ -785,6 +790,8 @@ function bookTile(meta) {
     // Pocket has no File menu: export lives here and in the ⋯ sheet
     if (window.Capacitor) options.push({ label: t('Export…'), desc: t('Text, Markdown, HTML, Word or EPUB, through the share sheet.'), value: 'export' });
     options.push(
+      // the ↻ on the cover, for the keyboard and screen readers
+      { label: t('New cover'), value: 'refresh' },
       { label: t('Set word goal…'), desc: t('Adds the subtle progress bar to the cover.'), value: 'goal' },
       { label: t('Remove from bookshelf'), desc: t('Takes it off your shelves. The files stay safe in your NEO Library folder on disk.'), value: 'remove' },
       window.Capacitor
@@ -816,6 +823,8 @@ function bookTile(meta) {
         await writeBookMeta(meta.id, meta);
         renderShelves();
       }
+    } else if (choice === 'refresh') {
+      await refreshCover(meta, el);
     } else if (choice === 'uncover') {
       await window.neo.removeCover(meta.id);
       meta.coverImage = null;
@@ -1286,12 +1295,14 @@ function renderChapters() {
     sec.dataset.id = chId;
     const head = document.createElement('div');
     head.className = 'chapter-head';
+    head.id = 'ch-head-' + chId;
     head.title = t('Right-click for chapter options · click after the number to add a title');
     const num = document.createElement('span');
     num.className = 'ch-num';
     num.textContent = t('Chapter {n}', { n: i + 1 });
     const sep = document.createElement('span');
     sep.className = 'ch-sep';
+    sep.setAttribute('aria-hidden', 'true');
     sep.textContent = '—';
     const titleSpan = document.createElement('span');
     titleSpan.className = 'ch-title';
@@ -1325,6 +1336,11 @@ function renderChapters() {
     const body = document.createElement('div');
     body.className = 'chapter-body';
     body.contentEditable = 'true';
+    // screen readers name each chapter by its heading (a lone chapter by the book)
+    body.setAttribute('role', 'textbox');
+    body.setAttribute('aria-multiline', 'true');
+    if (solo) body.setAttribute('aria-label', book.title || t('The story'));
+    else body.setAttribute('aria-labelledby', head.id);
     body.spellcheck = false; // NEO runs its own spellcheck pass
     body.innerHTML = chapterHTML[chId] || '<p><br></p>';
     // older marks used a "?" that read as a broken image — normalize to the flag
@@ -2482,7 +2498,7 @@ function focusChapter(chId) {
   const sel = window.getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
-  body.closest('.chapter').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  body.closest('.chapter').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
   currentChapterId = chId;
   highlightNav();
 }
@@ -2545,7 +2561,7 @@ function returnToMark(sid) {
   const scroller = $('#paper-scroll');
   const r = mark.getBoundingClientRect();
   const sr = scroller.getBoundingClientRect();
-  if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (r.top < sr.top + 40 || r.bottom > sr.bottom - 40) mark.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
   if (!bodyEl) return;
   currentChapterId = bodyEl.closest('.chapter').dataset.id;
   bodyEl.focus({ preventScroll: true });
@@ -2680,6 +2696,9 @@ function renderNav() {
   if (chapterDragActive) { navRefreshPending = true; return; }
   navRefreshPending = false;
   const list = $('#nav-list');
+  // a keyboard user on a chapter row keeps their place through the rebuild
+  const focusedRow = document.activeElement && document.activeElement.classList.contains('n-row')
+    ? document.activeElement.closest('.nav-item').dataset.id : null;
   list.innerHTML = '';
   book.chapterNotes = book.chapterNotes || {};
   book.chapterOrder.forEach((chId, i) => {
@@ -2712,6 +2731,9 @@ function renderNav() {
     note.contentEditable = 'true';
     note.spellcheck = false;
     note.textContent = book.chapterNotes[chId] || '';
+    note.setAttribute('role', 'textbox');
+    note.setAttribute('aria-label', t('Outline note'));
+    note.setAttribute('aria-placeholder', t('What happens here…'));
     note.addEventListener('click', (e) => e.stopPropagation());
     note.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); note.blur(); }
@@ -2727,7 +2749,14 @@ function renderNav() {
       switchTab('manuscript');
       focusChapter(chId);
     };
+    // from the keyboard, the row is the chapter's button (F6 reaches the pane)
+    pressable(rowEl, [
+      item.querySelector('.n-label').textContent,
+      t('{n} words', { n: words }),
+      flagged ? t('Unresolved placeholder') : ''
+    ].filter(Boolean).join(', '));
     list.appendChild(item);
+    if (chId === focusedRow) rowEl.focus({ preventScroll: true });
   });
 }
 
@@ -2866,6 +2895,7 @@ $('#side-pin').onclick = () => {
   const pinned = pane.dataset.pinned === '1';
   pane.dataset.pinned = pinned ? '0' : '1';
   $('#side-pin').classList.toggle('pinned', !pinned);
+  $('#side-pin').setAttribute('aria-pressed', !pinned ? 'true' : 'false');
   $('#editor-view').classList.toggle('side-pinned', !pinned);
   if (!pinned) pane.classList.add('open');
 };
@@ -3106,7 +3136,10 @@ function switchTab(name) {
       : { scroll: scroller.scrollTop };
   }
   currentTab = name;
-  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  $$('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.tab === name);
+    t.setAttribute('aria-selected', t.dataset.tab === name ? 'true' : 'false');
+  });
   if (spellOn) setTimeout(scanSpellingHere, 0);
   const paper = $('#paper');
   const aux = $('#aux-paper');
@@ -3513,7 +3546,7 @@ async function restoreDarling(id) {
         syncChapter(body, d.chapterId);
         darlings = darlings.filter((x) => x.id !== id);
         await window.neo.writeJSON(book.id, 'darlings', darlings);
-        scrollTo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        scrollTo.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
         toast(t('Darling restored to its original spot'));
         return;
       }
@@ -4660,7 +4693,7 @@ document.addEventListener('selectionchange', () => {
       // a band of about three lines around the writing height
       if (Math.abs(diff) <= lineHeight * 1.5) return;
       const scroller = $('#paper-scroll');
-      scroller.scrollTo({ top: scroller.scrollTop + diff, behavior: 'smooth' });
+      scroller.scrollTo({ top: scroller.scrollTop + diff, behavior: scrollBehavior() });
     } catch { /* selection mid-mutation; skip this frame */ }
   });
 });
@@ -4830,14 +4863,14 @@ function statsChartSvg() {
   const goalLine = goal
     ? `<line x1="${PAD}" x2="${W - PAD}" y1="${(H - PAD - (goal / maxC) * (H - PAD * 2 - 20)).toFixed(1)}" y2="${(H - PAD - (goal / maxC) * (H - PAD * 2 - 20)).toFixed(1)}" stroke="#c9a86a" stroke-dasharray="5,4" stroke-width="1" opacity="0.7"/>`
     : '';
-  return `<svg id="stats-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg id="stats-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escHtml(t('Words written over the last 30 days')).replace(/"/g, '&quot;')}">
     ${bars}
     <path d="${line}" fill="none" stroke="#c9a86a" stroke-width="2"/>
     ${goalLine}
   </svg>
-  <div style="display:flex;justify-content:space-between;font-size:10px;color:#666;padding:2px 4px">
+  <div class="stats-legend">
     <span>${t('30 days ago')}</span>
-    <span style="color:#3d8a6a">▮ ${t('daily words')}</span>
+    <span class="sl-daily">▮ ${t('daily words')}</span>
     <span style="color:var(--accent)">— ${t('total')}${goal ? ' · - - ' + t('goal') : ''}</span>
     <span>${t('today')}</span>
   </div>`;
@@ -5070,8 +5103,13 @@ function applyFonts() {
   }
   document.body.classList.toggle('no-dropcap', f.dropcap === 'none');
   document.body.classList.toggle('night', library.pageTheme === 'night');
-  document.body.classList.toggle('bright', !!library.uiBright);
+  // the system's "Increase contrast" turns it on too
+  document.body.classList.toggle('bright', !!library.uiBright || SYSTEM_CONTRAST.matches);
   reportViewState();
+  // View → Interface Size: everything but the page
+  const uiZoom = [1, 1.25, 1.5, 2].includes(library.uiZoom) ? library.uiZoom : 1;
+  document.documentElement.style.setProperty('--ui-zoom', uiZoom);
+  if (window.neo.uiZoomState) window.neo.uiZoomState(uiZoom);
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
   const zoom = Math.min(3, Math.max(0.75, library.pageZoom || 1));
@@ -5251,6 +5289,7 @@ function shortcutSections() {
       [K('⌘⇧O', 'Ctrl+Shift+O'), tk('Cycle focus mode'), tk('Off → paragraph → sentence → off.')],
       [K('⌘M', 'Ctrl+M'), tk('Minimize window')],
       [K('⌘W', 'Ctrl+W'), tk('Close window')],
+      [['F6', K('⌃Tab', 'Ctrl+Tab')], tk('Move between the page, the chapters, the notes and the bottom bar'), tk('Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.')],
       ...(IS_MAC ? [
         ['⌘H', tk('Hide NEO')],
         ['⌘⌥H', tk('Hide other apps')]
@@ -5276,7 +5315,7 @@ function showHelp() {
         <h2 id="shortcuts-title">${t('Keyboard shortcuts')}</h2>
       </header>
       <div class="shortcuts-content" tabindex="0" role="region" aria-label="${t('Shortcut reference')}"></div>
-      <footer class="shortcuts-footer">
+      <footer class="shortcuts-footer" role="none">
         <span>${t(K(tk('⌘ Command · ⇧ Shift · ⌥ Option · ⌃ Control'), tk('Ctrl Control · Shift · Alt')))}</span>
         <button class="m-ok btn-gold">${t('Done')}</button>
       </footer>
@@ -6123,6 +6162,11 @@ window.neo.onMenu(async (msg) => {
     try { if (book && !$('#editor-view').hidden) sessionStorage.setItem('neo-reopen', book.id); } catch { /* a nicety */ }
     setTimeout(() => window.neo.reloadForLanguage(), 400);
   }
+  if (msg.type === 'uiZoom') {
+    library.uiZoom = msg.value;
+    await window.neo.writeLibrary(library);
+    applyFonts();
+  }
   if (msg.type === 'uiBright') {
     library.uiBright = !library.uiBright;
     await window.neo.writeLibrary(library);
@@ -6222,6 +6266,177 @@ function installLinuxBodyFonts() {
   }
 }
 installLinuxBodyFonts();
+
+/* ================================================================== */
+/*  ACCESSIBILITY: keyboard, screen readers, system settings           */
+/* ================================================================== */
+// NEO stays quiet by design; these make the quiet parts reachable. The
+// system's own settings decide the rest: "Increase contrast" turns on the
+// Brighter Interface, "Reduce motion" stills the fades and slides.
+
+const SYSTEM_CONTRAST = window.matchMedia('(prefers-contrast: more)');
+const SYSTEM_STILL = window.matchMedia('(prefers-reduced-motion: reduce)');
+SYSTEM_CONTRAST.addEventListener('change', () => applyFonts());
+function scrollBehavior() { return SYSTEM_STILL.matches ? 'auto' : 'smooth'; }
+
+// Something clickable that isn't a <button>: Tab reaches it, Enter or Space
+// presses it, and a screen reader hears its name.
+function pressable(el, label) {
+  el.tabIndex = 0;
+  if (!el.getAttribute('role')) el.setAttribute('role', 'button');
+  if (label) el.setAttribute('aria-label', label);
+  el.addEventListener('keydown', (e) => {
+    if (e.target !== el || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+  });
+}
+for (const id of ['#author-chip', '#goal-counter', '#word-counter', '#zoom-level']) pressable($(id));
+
+// the tabs: Enter or Space opens one, ← → move along the row
+$$('.tab').forEach((tab, i, all) => {
+  tab.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tab.click(); }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      all[(i + (e.key === 'ArrowRight' ? 1 : all.length - 1)) % all.length].focus();
+    }
+  });
+});
+
+// Dialogs: announced as dialogs, keyboard focus moves inside (so Esc and
+// Enter reach them) and comes back to where it was when they close.
+let focusBeforeDialog = null;
+document.addEventListener('focusin', (e) => {
+  if (!e.target.closest('.modal-backdrop')) focusBeforeDialog = e.target;
+}, true);
+function dialogify(bd) {
+  const box = bd.querySelector('.modal');
+  if (!box || box.getAttribute('role')) return;
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  const h = box.querySelector('h2');
+  if (h) {
+    h.id = h.id || 'dlg-' + Math.random().toString(36).slice(2, 9);
+    box.setAttribute('aria-labelledby', h.id);
+  }
+  bd._returnFocus = focusBeforeDialog;
+  requestAnimationFrame(() => {
+    if (bd.hidden || bd.contains(document.activeElement)) return;
+    const first = box.querySelector('input:not([type=hidden]), select, textarea, .m-ok, button, [tabindex="0"]');
+    if (first) first.focus({ preventScroll: true });
+  });
+}
+new MutationObserver((muts) => {
+  for (const m of muts) {
+    m.addedNodes.forEach((n) => { if (n.nodeType === 1 && n.classList.contains('modal-backdrop')) dialogify(n); });
+    m.removedNodes.forEach((n) => {
+      const back = n._returnFocus;
+      if (!back || !back.isConnected || back.isContentEditable) return; // the page restores its own caret
+      if (document.activeElement && document.activeElement !== document.body) return;
+      back.focus({ preventScroll: true });
+    });
+  }
+}).observe(document.body, { childList: true });
+$$('.modal-backdrop').forEach(dialogify);
+
+// F6 walks the regions a mouse finds by hovering: the page, the chapters
+// pane, the notes pane, the bottom bar. ⇧F6 walks back; Esc returns to
+// the page from any of them. A pane opened this way closes when the
+// keyboard leaves it, unless it is pinned.
+let pagePlace = null; // where the caret was when the keyboard left the page
+$('#paper-scroll').addEventListener('focusout', (e) => {
+  if ($('#paper-scroll').contains(e.relatedTarget)) return;
+  const sel = window.getSelection();
+  if (sel.rangeCount && e.target.isContentEditable) pagePlace = { el: e.target, range: sel.getRangeAt(0).cloneRange() };
+});
+function focusPage() {
+  if (pagePlace && pagePlace.el.isConnected && !pagePlace.el.closest('[hidden]')) {
+    pagePlace.el.focus({ preventScroll: true });
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(pagePlace.range);
+    return;
+  }
+  if (currentTab === 'manuscript' && book && book.chapterOrder.length) {
+    focusChapter(currentChapterId || book.chapterOrder[0]);
+    return;
+  }
+  const aux = $('#aux-paper');
+  const target = aux.querySelector('[contenteditable="true"]:not([hidden] *), button');
+  if (target) target.focus();
+}
+function openPaneFromKeyboard(pane, first) {
+  if (!pane.classList.contains('open')) { pane.classList.add('open'); pane.dataset.kbd = '1'; }
+  if (first) first.focus();
+}
+for (const pane of [$('#nav-pane'), $('#side-pane')]) {
+  pane.addEventListener('focusout', (e) => {
+    if (pane.contains(e.relatedTarget) || pane.dataset.kbd !== '1') return;
+    // a list rebuilt under the keyboard hands focus straight back: wait a beat
+    setTimeout(() => {
+      if (pane.contains(document.activeElement) || pane.dataset.kbd !== '1') return;
+      pane.dataset.kbd = '0';
+      if (pane.dataset.pinned !== '1' && !chapterDragActive) pane.classList.remove('open');
+    }, 0);
+  });
+}
+const REGIONS = [
+  { box: () => $('#paper-scroll'), enter: focusPage },
+  {
+    box: () => $('#nav-pane'),
+    enter: () => {
+      const rows = $$('#nav-list .n-row');
+      const cur = $('#nav-list .nav-item.current .n-row');
+      openPaneFromKeyboard($('#nav-pane'), cur || rows[0] || $('#nav-add'));
+    }
+  },
+  {
+    box: () => $('#side-pane'),
+    enter: () => openPaneFromKeyboard($('#side-pane'), $('#sticky-list textarea') || $('#side-pin'))
+  },
+  { box: () => $('#bottombar'), enter: () => ($('.tab.active') || $('#back-to-shelf')).focus() }
+];
+// F6, or ⌃Tab: on a Mac the F-keys drive brightness and sound unless fn is
+// held, so F6 alone would do nothing there.
+const regionKey = (e) => e.key === 'F6' || (e.key === 'Tab' && e.ctrlKey && !e.metaKey && !e.altKey);
+// On the shelf: the books, then the header (author, Import, + Shelf).
+const SHELF_REGIONS = [
+  { box: () => $('#shelves'), enter: () => { const b = $('#shelves .book') || $('#shelves .new-book'); if (b) b.focus(); } },
+  { box: () => $('#shelf-header'), enter: () => $('#author-chip').focus() }
+];
+document.addEventListener('keydown', (e) => {
+  if (document.querySelector('.modal-backdrop:not([hidden])')) return;
+  if ($('#editor-view').hidden) {
+    if (!regionKey(e)) return;
+    e.preventDefault();
+    const at = SHELF_REGIONS.findIndex((r) => r.box().contains(document.activeElement));
+    SHELF_REGIONS[at < 0 ? 0 : (at + 1) % SHELF_REGIONS.length].enter();
+    return;
+  }
+  const here = REGIONS.findIndex((r) => r.box().contains(document.activeElement));
+  if (regionKey(e)) {
+    e.preventDefault();
+    // from nowhere in particular (a book just opened), forward starts at the page
+    if (here < 0) { REGIONS[e.shiftKey ? REGIONS.length - 1 : 0].enter(); return; }
+    REGIONS[(here + (e.shiftKey ? REGIONS.length - 1 : 1)) % REGIONS.length].enter();
+    return;
+  }
+  // Esc from a pane or the bottom bar: back to the words, not to the shelf
+  if (e.key === 'Escape' && here > 0 && $('#searchbar').hidden) {
+    e.preventDefault();
+    e.stopPropagation();
+    focusPage();
+  }
+}, true);
+// up and down the chapter list
+$('#nav-list').addEventListener('keydown', (e) => {
+  if (!e.target.classList.contains('n-row') || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+  e.preventDefault();
+  const rows = $$('#nav-list .n-row');
+  const i = rows.indexOf(e.target) + (e.key === 'ArrowDown' ? 1 : -1);
+  if (rows[i]) rows[i].focus();
+});
 
 /* ================================================================== */
 

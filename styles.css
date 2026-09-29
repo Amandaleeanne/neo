@@ -332,7 +332,7 @@ button { font: inherit; cursor: pointer; }
 .book .b-progress > div { height: 100%; background: var(--accent); }
 
 .new-book {
-  border: 1px dashed #4a4a4a; color: #4a4a4a;
+  border: 1px dashed #5a5a5a; color: #6a6a6a;
   align-items: center; justify-content: center; font-size: 34px; font-weight: 200;
   background: rgba(255,255,255,0.02);
 }
@@ -367,7 +367,7 @@ button { font: inherit; cursor: pointer; }
 }
 .btn-gold:hover { filter: brightness(1.08); }
 .btn-quiet {
-  background: none; border: none; color: #888;
+  background: none; border: none; color: #8a8a8a;
   font-size: 14px; padding: 8px 10px; cursor: pointer;
 }
 .btn-quiet:hover { color: #bbb; }
@@ -427,14 +427,15 @@ body.night #tp-author { color: #918b7d; }
 body.night .chapter-body p.scene-break { color: #7d7768; }
 body.night .chapter-body p.ghost { color: #6f6a5e; }
 body.night [contenteditable][data-ph]:empty::before,
-body.night #aux-editor:empty::before,
-body.night .darlings-empty { color: #5f5b52; }
+body.night #aux-editor:empty::before { color: #5f5b52; }
+body.night .darlings-empty { color: #8d8b84; }
 body.night .chapter-head .ch-title:empty::before { color: #5f5b52; }
 body.night .darling { border-color: #3a3835; }
-body.night .ol-num { color: #7d7768; }
+body.night .ol-num { color: #8f8a7d; }
 body.night .ol-chapter .ol-num { color: #918b7d; }
 body.night .ol-text:focus { border-bottom-color: #4a4742; }
-body.night .ol-hint { color: #5f5b52; }
+body.night .ol-hint { color: #8d8b84; }
+body.night .darling .d-meta, body.night .darling button { color: #999; }
 /* notes pasted before paste-cleaning existed may carry their own colors */
 body.night #aux-editor * { color: inherit; }
 
@@ -581,7 +582,7 @@ body:not(.no-dropcap) .chapter-body:not(.cap-off) p:not(.poetry):not(p:not(.poet
   font-family: Georgia, serif;
 }
 .spell-menu button:hover:not(:disabled) { background: #333; }
-.spell-menu button:disabled { color: #777; font-style: italic; }
+.spell-menu button:disabled { color: #8e8e8e; font-style: italic; }
 .spell-menu .sm-sep { height: 1px; background: #3a3a3a; margin: 4px 0; }
 body.bright .spell-menu { border-color: #4a4a4a; }
 body.bright .spell-menu button { color: #eee; }
@@ -608,7 +609,7 @@ body.bright .spell-menu button { color: #eee; }
 /* --- Aux paper (Notes / Outline / Darlings) --- */
 #aux-paper h2 {
   font-family: var(--body-font); font-weight: 400; letter-spacing: 3px;
-  text-transform: uppercase; font-size: 14px; color: #777;
+  text-transform: uppercase; font-size: 14px; color: #727272;
   text-align: center; margin-bottom: 40px;
 }
 #aux-editor {
@@ -625,7 +626,7 @@ body.bright .spell-menu button { color: #eee; }
 .ol-chapter { margin-top: 18px; }
 .ol-section { margin-left: 40px; }
 .ol-num {
-  font-family: var(--body-font); color: #8d8778; min-width: 24px; text-align: right;
+  font-family: var(--body-font); color: #767165; min-width: 24px; text-align: right;
   user-select: none; flex-shrink: 0;
 }
 .ol-chapter .ol-num { font-weight: 700; color: #6b6455; }
@@ -638,7 +639,7 @@ body.bright .spell-menu button { color: #eee; }
 .ol-chapter .ol-text:empty::before { content: var(--ph-ol-chapter, 'What happens in this chapter…'); }
 .ol-section .ol-text:empty::before { content: var(--ph-ol-section, 'What happens in this section…'); }
 .ol-hint {
-  margin-top: 40px; color: #b9b4a8; font-size: 12.5px; font-style: italic;
+  margin-top: 40px; color: #75716a; font-size: 12.5px; font-style: italic;
   line-height: 1.7; text-align: center;
 }
 
@@ -656,14 +657,14 @@ body.bright .spell-menu button { color: #eee; }
 .darling .d-meta {
   display: flex; justify-content: space-between; align-items: center;
   margin-top: 12px; font-family: -apple-system, sans-serif;
-  font-size: 11px; color: #999;
+  font-size: 12px; color: #717171;
 }
 .darling button {
   background: none; border: 1px solid #ccc; border-radius: 4px;
-  font-size: 11px; padding: 3px 10px; color: #777;
+  font-size: 12px; padding: 3px 10px; color: #727272;
 }
 .darling button:hover { border-color: var(--accent); color: var(--ink); }
-.darlings-empty { text-align: center; color: #b9b4a8; font-style: italic; padding: 60px 0; }
+.darlings-empty { text-align: center; color: #75716a; font-style: italic; padding: 60px 0; }
 
 /* --- Left nav pane --- */
 #nav-hotzone { position: fixed; left: 0; top: 0; bottom: 40px; width: 18px; z-index: 60; }
@@ -685,7 +686,7 @@ body.bright .spell-menu button { color: #eee; }
   font-size: 13px; color: #aaa;
 }
 .nav-item:hover .n-row, .nav-item.current .n-row { color: #eee; }
-.nav-item .n-words { font-size: 11px; color: #5d5d5d; }
+.nav-item .n-words { font-size: 12px; color: #919191; }
 .nav-item .n-label {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 155px;
 }
@@ -700,7 +701,7 @@ body.bright .spell-menu button { color: #eee; }
   flex-shrink: 0; margin-left: 8px; display: inline-block;
 }
 .nav-note {
-  margin-top: 4px; font-size: 12px; line-height: 1.45; color: #777;
+  margin-top: 4px; font-size: 12px; line-height: 1.45; color: #919191;
   outline: none; min-height: 15px; cursor: text;
 }
 .nav-note:empty::before { content: var(--ph-nav-note, 'What happens here…'); color: #4a4a4a; font-style: italic; }
@@ -708,7 +709,7 @@ body.bright .spell-menu button { color: #eee; }
 #nav-add {
   display: block; width: calc(100% - 36px); margin: 14px 18px 0;
   background: none; border: 1px dashed #3a3a3a; border-radius: 6px;
-  color: #666; font-size: 12px; padding: 8px;
+  color: #898989; font-size: 12px; padding: 8px;
 }
 #nav-add:hover { color: var(--accent); border-color: var(--accent); }
 
@@ -727,7 +728,7 @@ body.bright .spell-menu button { color: #eee; }
   letter-spacing: 2px; color: var(--muted);
 }
 #side-pin {
-  background: none; border: none; color: #555; font-size: 15px;
+  background: none; border: none; color: #8a8a8a; font-size: 15px;
 }
 #side-pin.pinned { color: var(--accent); }
 .sticky {
@@ -736,19 +737,19 @@ body.bright .spell-menu button { color: #eee; }
   border-left: 3px solid var(--accent); cursor: pointer;
 }
 .sticky.unresolved { border-left-color: var(--red); }
-.sticky .s-ch { font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 1px; }
+.sticky .s-ch { font-size: 12px; color: #929292; text-transform: uppercase; letter-spacing: 1px; }
 .sticky textarea {
   width: 100%; background: none; border: none; color: #ddd; font: inherit;
   resize: vertical; min-height: 34px; outline: none;
 }
 .sticky .s-actions { text-align: right; }
 .sticky .s-actions button {
-  background: none; border: none; color: #666; font-size: 11px;
+  background: none; border: none; color: #929292; font-size: 12px;
 }
 .sticky .s-actions button:hover { color: var(--accent); }
 /* keeps the two actions from reading as one phrase */
 .sticky .s-actions .s-sep { color: #555; margin: 0 2px; }
-.stickies-empty { text-align: center; color: #555; font-size: 12px; padding: 30px 14px; line-height: 1.6; }
+.stickies-empty { text-align: center; color: #8a8a8a; font-size: 12px; padding: 30px 14px; line-height: 1.6; }
 
 /* --- Bottom bar --- */
 #bottombar {
@@ -804,7 +805,7 @@ body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
   color: #aaa; font-size: 12px; padding: 5px 9px;
 }
 #searchbar button:hover { color: var(--accent); border-color: var(--accent); }
-#search-count { font-size: 11px; color: var(--muted); min-width: 52px; text-align: center; }
+#search-count { font-size: 12px; color: var(--muted); min-width: 52px; text-align: center; }
 
 #goal-counter.goal-met { color: var(--accent); }
 #import-btn {
@@ -817,7 +818,7 @@ body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
 .stats-nums { display: flex; gap: 26px; margin: 14px 0 18px; }
 .stats-nums div { text-align: center; }
 .stats-nums .big { font-size: 26px; color: var(--accent); font-family: Georgia, serif; }
-.stats-nums .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 3px; }
+.stats-nums .lbl { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 3px; }
 .stats-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; font-size: 13px; }
 .stats-row input {
   width: 90px; background: var(--bg); border: 1px solid #3a3a3a; border-radius: 5px;
@@ -862,14 +863,14 @@ body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
   padding: 7px 0; border-bottom: 1px solid #303030; font-size: 13px; line-height: 1.4;
 }
 .shortcut-row dt { min-width: 0; }
-.shortcut-row small { display: block; font-size: 11.5px; color: #999; line-height: 1.5; margin-top: 3px; }
+.shortcut-row small { display: block; font-size: 12px; color: #999; line-height: 1.5; margin-top: 3px; }
 .shortcut-row dd { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px; max-width: 48%; flex-shrink: 0; }
 .shortcut-row kbd {
   font: 12px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   white-space: nowrap; color: #eee; background: #2c2c2c; padding: 1px 6px;
   border: 1px solid #484848; border-bottom-width: 2px; border-radius: 4px;
 }
-.shortcut-or { font-size: 10px; color: #999; }
+.shortcut-or { font-size: 12px; color: #999; }
 .shortcuts-footer {
   display: flex; justify-content: space-between; align-items: center; gap: 16px;
   padding: 14px 30px; border-top: 1px solid #373737;
@@ -890,14 +891,14 @@ body.full-screen.focus-mode #bottombar:not(:hover):not(.attn) { opacity: 0; }
 
 /* --- Brighter interface (View menu) — the quiet default, turned up --- */
 body.bright { --muted: #b4b4b4; }
-body.bright #bottombar { opacity: 0.92; }
+body.bright #bottombar { opacity: 1; }
 body.bright .tab { color: #b4b4b4; }
 body.bright .nav-item .n-row { color: #ccc; }
-body.bright .nav-item .n-words { color: #8f8f8f; }
-body.bright .nav-note { color: #999; }
-body.bright .shelf-grip { opacity: 0.55; }
+body.bright .nav-item .n-words { color: #a6a6a6; }
+body.bright .nav-note { color: #a6a6a6; }
+body.bright .shelf-grip { opacity: 1; color: #838383; }
 body.bright .book .b-refresh { color: rgba(255,255,255,0.4); }
-body.bright .new-book { border-color: #6a6a6a; color: #6a6a6a; }
+body.bright .new-book { border-color: #8a8a8a; color: #8a8a8a; }
 body.bright #add-shelf-btn, body.bright #import-btn { color: #b4b4b4; border-color: #555; }
 
 /* --- Hint toast --- */
@@ -920,6 +921,95 @@ body.bright .show-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(25
 
 /* pinned notes pane: the page column shifts left to clear the pane */
 #editor-view.side-pinned #paper-scroll { left: calc(50% - 125px); }
+
+/* ================================================================== */
+/* ACCESSIBILITY                                                        */
+/* ================================================================== */
+
+/* the progress chart's legend */
+.stats-legend {
+  display: flex; justify-content: space-between; font-size: 12px; color: #8b8b8b; padding: 2px 4px;
+}
+.stats-legend .sl-daily { color: #54987c; }
+.sticky textarea::placeholder { color: #929292; }
+
+/* Where the keyboard is: a gold ring on whatever Tab reaches. The mouse
+   never sees it, and the page itself never gets one. */
+:where(button, [role="button"], [role="tab"], select, summary, a[href]):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+}
+.book:focus-visible, .new-book:focus-visible { outline-offset: 4px; border-radius: 3px 6px 6px 3px; }
+.tab:focus-visible { outline-offset: -2px; }
+
+/* The quiet chrome wakes for the keyboard as it does for the mouse. */
+#bottombar:has(:focus-visible) { opacity: 1; }
+#nav-pane:has(:focus-visible), #side-pane:has(:focus-visible) { transform: translateX(0); }
+.shelf:has(.shelf-label:focus-visible) .shelf-grip,
+.chapter-head:has(:focus-visible) .ch-sep { opacity: 0.6; }
+
+/* Brighter Interface (View menu, or the system's "Increase contrast"):
+   every hint and placeholder reads at 4.5:1 too, on paper and at night. */
+body.bright [contenteditable][data-ph]:empty::before,
+body.bright #aux-editor:empty::before,
+body.bright .ol-text:empty::before { color: #75716a; }
+body.bright .chapter-head .ch-title:empty::before { color: #747068; }
+body.bright .chapter-body p.ghost { color: #767168; }
+body.bright .chapter-body p.scene-break { color: #727272; }
+body.bright .nav-note:empty::before { color: #919191; }
+body.bright.night [contenteditable][data-ph]:empty::before,
+body.bright.night #aux-editor:empty::before,
+body.bright.night .chapter-head .ch-title:empty::before { color: #8d8b84; }
+body.bright.night .chapter-body p.ghost { color: #8f8b81; }
+body.bright.night .chapter-body p.scene-break { color: #8f8a7d; }
+body.bright .book .b-refresh { color: rgba(255,255,255,0.65); }
+
+/* The system's "Reduce motion": no fades, slides or shimmer. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
+  .book:hover, .new-book:hover { transform: none; }
+}
+
+/* Windows high contrast: the system picks every color; keep what color
+   alone used to say (the open tab, the current chapter, the page's edge). */
+@media (forced-colors: active) {
+  #bottombar { opacity: 1; }
+  .tab.active { text-decoration: underline; text-underline-offset: 4px; }
+  .nav-item.current { border-left-color: Highlight; }
+  .sheet, #aux-paper { border: 1px solid CanvasText; }
+  .ph-mark { border: 1px solid Highlight; }
+}
+
+/* Interface size (View menu): the shelf, the panes, the bottom bar and the
+   dialogs grow together; the page keeps its own size and zoom. Lengths
+   that meet the page or the window are corrected for the zoom. */
+:root { --ui-zoom: 1; }
+#bookshelf-view, #nav-pane, #side-pane, #bottombar, #searchbar, #hint, .modal { zoom: var(--ui-zoom); }
+#paper-scroll, #nav-hotzone, #side-hotzone { bottom: calc(40px * var(--ui-zoom)); }
+#editor-view.side-pinned #paper-scroll { left: calc(50% - 125px * var(--ui-zoom)); }
+.modal { max-height: calc(85vh / var(--ui-zoom)); max-width: calc(100vw / var(--ui-zoom) - 32px); }
+.font-list { max-height: calc(50vh / var(--ui-zoom)); }
+.shortcuts-modal {
+  width: min(920px, calc(100vw / var(--ui-zoom) - 48px));
+  height: min(720px, calc(100vh / var(--ui-zoom) - 80px));
+}
+/* A narrow bottom bar (large interface, small window) keeps what matters:
+   the tabs, today's words and the word count. */
+#bottombar { container-type: inline-size; }
+#counters span, .tab, #back-to-shelf { white-space: nowrap; }
+@container (max-width: 900px) {
+  #pos-counter { display: none; }
+  .tab { padding: 5px 10px; }
+  .tab.darlings { margin-left: 8px; }
+  #counters { gap: 12px; }
+}
+@container (max-width: 700px) {
+  #zoom-control { display: none; }
+  #back-to-shelf span[data-i18n] { display: none; }
+  #bottombar { gap: 10px; }
+}
 
 /* Help → Check for Update…: the download bar */
 .up-bar { height: 6px; background: #2a2a2a; border-radius: 3px; margin-top: 12px; overflow: hidden; }
