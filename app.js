@@ -5376,6 +5376,40 @@ function buildMd(data) {
   return out;
 }
 
+// The Web Page and PDF read in the page's own typeface. A face NEO ships
+// (the @font-face rules in styles.css, the body fonts on Linux) travels
+// inside the file, so the PDF matches the page on any machine; a font the
+// computer has goes by name, with the same fallbacks as the page.
+const exportBodyFont = () => (getComputedStyle(document.documentElement).getPropertyValue('--body-font').trim() || 'Georgia, serif').replace(/[<>{};]/g, '');
+async function exportFontFaces(d) {
+  const family = exportBodyFont().split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const text = d.sections.map((ch) => ch.paras.map((p) => p.html).join('')).join('');
+  const italic = !!d.subtitle || /<i[\s>]/.test(text); // (the title is always bold)
+  const boldItalic = italic && /<b[\s>]/.test(text);
+  let css = '';
+  for (const sheet of document.styleSheets) {
+    let rules = [];
+    try { rules = [...sheet.cssRules]; } catch { continue; }
+    for (const r of rules) {
+      if (!(r instanceof CSSFontFaceRule)) continue;
+      if (r.style.getPropertyValue('font-family').replace(/["']/g, '').trim() !== family) continue;
+      const style = r.style.getPropertyValue('font-style') || 'normal';
+      const weight = r.style.getPropertyValue('font-weight') || '400';
+      if (style === 'italic' && !(parseInt(weight, 10) >= 600 ? boldItalic : italic)) continue;
+      const src = r.style.getPropertyValue('src').match(/url\(["']?([^"')]+)["']?\)\s*(format\([^)]*\))?/);
+      if (!src) continue;
+      try {
+        const bytes = new Uint8Array(await (await fetch(new URL(src[1], sheet.href || location.href))).arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const ext = src[1].split('.').pop().toLowerCase();
+        css += `@font-face { font-family: '${family}'; src: url(data:font/${ext};base64,${btoa(bin)}) ${src[2] || ''}; font-weight: ${weight}; font-style: ${style}; }\n`;
+      } catch { /* the name still stands, with its fallbacks */ }
+    }
+  }
+  return css;
+}
+
 function buildHtml(data, opts = {}) {
   const d = data || bookExportData();
   const total = d.sections.reduce((s, ch) => s + ch.paras.reduce((n, p) => n + countWords(p.text || ''), 0), 0);
@@ -5408,7 +5442,8 @@ function buildHtml(data, opts = {}) {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${escHtml(d.title)}</title>
 <style>
-  body { font-family: Georgia, serif; color: #1c1c1c; max-width: 620px; margin: 40px auto; line-height: 1.7; font-size: 13pt; }
+  ${opts.fonts || ''}
+  body { font-family: ${exportBodyFont()}; color: #1c1c1c; max-width: 620px; margin: 40px auto; line-height: 1.7; font-size: 13pt; }
   .coverpage { text-align: center; margin: 0 0 40px; page-break-after: always; }
   .coverpage img { display: block; margin: 0 auto; width: 100%; max-width: 620px; max-height: 95vh; object-fit: contain; }
   .titlepage { text-align: center; margin: 30vh 0 20vh; page-break-after: always; }
@@ -5743,7 +5778,7 @@ async function exportShelfAnthology(shelf) {
   let payload;
   if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
   else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
-  else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data) }) };
+  else payload = { format: 'pdf', defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
   const saved = await window.neo.exportSave(payload);
   if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
 }
@@ -5757,7 +5792,10 @@ async function doExport(format) {
   else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
   else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
   else if (format === 'md') payload = { format, defaultName, content: buildMd() };
-  else payload = { format, defaultName, content: buildHtml(null, { cover: await exportCover(bookExportData()) }) };
+  else {
+    const data = bookExportData();
+    payload = { format, defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
+  }
   const saved = await window.neo.exportSave(payload);
   if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
 }
@@ -5823,11 +5861,12 @@ async function doEmailDraft() {
       ? t('The PDF snapshot is in the Finder window NEO just opened — drag it into this email before sending.')
       : t('PDF snapshot attached.'));
   toast(t('Preparing your draft…'));
+  const snapshot = bookExportData();
   const res = await window.neo.emailDraft({
     to: library.emailAddress,
     subject,
     body,
-    html: buildHtml(null, { stamp: true }), // the email snapshot is a provenance record
+    html: buildHtml(snapshot, { stamp: true, fonts: await exportFontFaces(snapshot) }), // the email snapshot is a provenance record
     defaultName: safeName(book.title),
     method: library.emailMethod
   });
