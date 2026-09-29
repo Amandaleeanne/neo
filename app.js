@@ -4747,7 +4747,8 @@ function openCoverArt() {
   key.focus();
 }
 
-// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr
+// An hour of the day as the writer's language says it: 1 am / 13 h / 13 Uhr,
+// or 13:00 where the language's hour is a bare number
 function hourLabel(h) {
   if (h === 0) return t('midnight');
   const loc = NeoI18n.getLocale();
@@ -4755,7 +4756,9 @@ function hourLabel(h) {
     if (h === 12) return t('noon');
     return h < 12 ? t('{h} am', { h: String(h) }) : t('{h} pm', { h: String(h - 12) });
   }
-  return new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(new Date(2000, 0, 1, h));
+  const at = new Date(2000, 0, 1, h);
+  const hour = new Intl.DateTimeFormat(loc, { hour: 'numeric' }).format(at);
+  return /^\d+$/.test(hour) ? new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit' }).format(at) : hour;
 }
 
 function openStats() {
