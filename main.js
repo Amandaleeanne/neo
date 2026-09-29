@@ -554,11 +554,18 @@ ipcMain.handle('fullscreen:escape', (e) => {
 // ---------------------------------------------------------------------------
 
 async function renderPDF(html) {
+  // The book reaches the PDF printer as a file, not as a data: URL. A URL
+  // stops at 2 MB, and a long novel is bigger than that once it's encoded; a
+  // book in Russian or Chinese gets there far sooner, because every letter
+  // becomes six to nine characters. Past that the export (and ⌘E) saved
+  // nothing at all.
+  const tmp = path.join(app.getPath('temp'), `neo-print-${process.pid}-${Date.now()}.html`);
+  fs.writeFileSync(tmp, html, 'utf8');
   const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
   // Letter is a North American habit; most of the world prints A4.
   const letterCountries = ['US', 'CA', 'MX', 'PH'];
   try {
-    await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    await pdfWin.loadFile(tmp);
     return await pdfWin.webContents.printToPDF({
       pageSize: letterCountries.includes(app.getLocaleCountryCode()) ? 'Letter' : 'A4',
       margins: { top: 1, bottom: 1, left: 1, right: 1 },
@@ -566,6 +573,7 @@ async function renderPDF(html) {
     });
   } finally {
     pdfWin.destroy();
+    try { fs.unlinkSync(tmp); } catch { /* already gone */ }
   }
 }
 

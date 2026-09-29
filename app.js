@@ -5648,8 +5648,14 @@ async function exportShelfAnthology(shelf) {
     if (saved) toast(t('Anthology of {n} works exported: {file}', { n: shelf.bookIds.length, file: saved.split('/').pop() }), 6000);
   } catch (err) {
     window.neo.logError('export anthology: ' + (err && err.stack || err));
-    toast(t('Couldn’t export the anthology: {error}', { error: (err && err.message) || err }), 8000);
+    toast(t('Couldn’t export the anthology: {error}', { error: plainError(err) }), 8000);
   }
+}
+
+// What went wrong, in the words a writer can use: Electron wraps a failure in
+// the main process as "Error invoking remote method 'export:save': Error: …"
+function plainError(err) {
+  return String((err && err.message) || err).replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, '');
 }
 
 async function doExport(format) {
@@ -5669,7 +5675,7 @@ async function doExport(format) {
     // An export that saves nothing must never be silent: name the failure,
     // and put the stack in the error log for whatever bug report follows.
     window.neo.logError('export ' + format + ': ' + (err && err.stack || err));
-    toast(t('Couldn’t export: {error}', { error: (err && err.message) || err }), 8000);
+    toast(t('Couldn’t export: {error}', { error: plainError(err) }), 8000);
   }
 }
 
