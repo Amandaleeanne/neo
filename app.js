@@ -4525,11 +4525,28 @@ function showSpellMenu(x, y, word, suggestions, actions) {
 let typewriterEnabled = false;
 // The page needs empty room beneath its last line, or the caret can't be held
 // at the centre once the end of the draft scrolls into view (body.typewriter
-// deepens #paper's bottom margin; see styles.css).
+// deepens #paper's bottom margin; see styles.css). Only as much as the last
+// page's own blank paper doesn't already give: a page that is mostly blank
+// needs none, and a fixed 60vh left an empty scroll under it from line one.
 function applyTypewriter() {
   document.body.classList.toggle('typewriter', typewriterEnabled);
   if (window.neo.typewriterState) window.neo.typewriterState(typewriterEnabled); // the Format menu's tick
+  typewriterRoom();
 }
+function typewriterRoom() {
+  const paper = $('#paper');
+  const bodies = $$('#chapters .chapter-body');
+  const last = bodies[bodies.length - 1];
+  if (!typewriterEnabled || !last || paper.hidden) return;
+  const line = parseFloat(getComputedStyle(last).lineHeight) || 30;
+  // the last line must be able to rise to the writing height (45% of the
+  // window, as in the selectionchange handler below)
+  const below = paper.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom;
+  const room = $('#paper-scroll').clientHeight - window.innerHeight * 0.45 - below + line;
+  paper.style.setProperty('--typewriter-room', Math.max(120, Math.ceil(room)) + 'px');
+}
+new ResizeObserver(() => typewriterRoom()).observe($('#chapters'));
+window.addEventListener('resize', typewriterRoom);
 function toggleTypewriter() {
   typewriterEnabled = !typewriterEnabled;
   library.typewriter = typewriterEnabled;

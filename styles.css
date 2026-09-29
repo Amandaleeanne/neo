@@ -419,8 +419,9 @@ body.night #aux-editor * { color: inherit; }
   width: calc(680px * var(--page-zoom, 1)); max-width: 92%;
   margin: 40px auto 120px;
 }
-/* typewriter scrolling: room below the last line so it can sit mid-screen */
-body.typewriter #paper { margin-bottom: 60vh; }
+/* typewriter scrolling: room below the last line so it can sit mid-screen
+   (app.js works out how much the last page doesn't already give) */
+body.typewriter #paper { margin-bottom: var(--typewriter-room, 60vh); }
 /* focus mode: the manuscript fades back, the neo-focus highlight (set in
    app.js) repaints the current sentence / paragraph / scene at full ink */
 .chapter-body, .chapter-head { transition: color 0.25s ease; }
