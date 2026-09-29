@@ -766,7 +766,14 @@ window.addEventListener('resize', () => {
 
 const PAGE_FRONT = ['copyright', 'dedication', 'epigraph'];
 const PAGE_BACK = ['acknowledgments', 'about'];
-const PAGE_KINDS = ['cover', ...PAGE_FRONT, 'part', ...PAGE_BACK];
+// A book's own prologue and epilogue, when it has them: story, written in
+// the editor like any title, standing before the first part and after the
+// last. (A single book's first or last chapter can take the role too.)
+const PAGE_WRITTEN = ['prologue', 'epilogue'];
+// the order each end of a bound shelf keeps
+const PAGE_LEAD = ['cover', ...PAGE_FRONT, 'prologue'];
+const PAGE_TAIL = ['epilogue', ...PAGE_BACK];
+const PAGE_KINDS = [...PAGE_LEAD, 'part', ...PAGE_TAIL];
 const isPageMeta = (m) => !!(m && PAGE_KINDS.includes(m.kind));
 const isBound = (shelf) => !!(shelf && shelf.binding && shelf.binding.bound);
 const shelfOf = (bookId) => library.shelves.find((s) => s.bookIds.includes(bookId));
@@ -777,7 +784,9 @@ function pageKindName(kind) {
     copyright: t('Copyright'),
     dedication: t('Dedication'),
     epigraph: t('Epigraph'),
+    prologue: t('Prologue'),
     part: t('Part'),
+    epilogue: t('Epilogue'),
     acknowledgments: t('Acknowledgments'),
     about: t('About the Author')
   }[kind] || kind;
@@ -807,11 +816,20 @@ const PAGE_STARTERS = {
 };
 
 async function createPageBook(shelf, kind) {
-  const title = kind === 'cover' ? shelf.name : pageKindName(kind) + ' — ' + shelf.name;
+  const written = PAGE_WRITTEN.includes(kind);
+  // a prologue opens in the editor as "Prologue", under the book's name
+  const title = kind === 'cover' || written ? (written ? pageKindName(kind) : shelf.name) : pageKindName(kind) + ' — ' + shelf.name;
   const meta = await window.neo.createBook({ author: shelfAuthorName(shelf), title });
   meta.title = title;
   meta.kind = kind;
   meta.shelfId = shelf.id; // which bound book it belongs to, for anyone reading the folder
+  if (written) {
+    meta.subtitle = shelf.name;
+    meta.tabNames = {
+      notes: (library.tabDefaults && library.tabDefaults.notes) || 'Notes',
+      outline: (library.tabDefaults && library.tabDefaults.outline) || 'Outline'
+    };
+  }
   if (kind === 'cover') {
     meta.coverSeed = 'bound:' + shelf.id;
     meta.chapterOrder = [];
@@ -834,9 +852,9 @@ async function bodyRange(shelf, skipId) {
     kinds.push((m && m.kind) || '');
   }
   let start = 0;
-  while (start < ids.length && (kinds[start] === 'cover' || PAGE_FRONT.includes(kinds[start]))) start++;
+  while (start < ids.length && PAGE_LEAD.includes(kinds[start])) start++;
   let end = ids.length;
-  while (end > start && PAGE_BACK.includes(kinds[end - 1])) end--;
+  while (end > start && PAGE_TAIL.includes(kinds[end - 1])) end--;
   return { start, end };
 }
 
@@ -879,11 +897,10 @@ async function bindShelf(shelf) {
 function restoreParked(shelf) {
   const parked = (shelf.binding && shelf.binding.parked) || [];
   if (!parked.length) return;
-  const rank = (k) => (k === 'cover' ? -1 : PAGE_FRONT.indexOf(k));
-  const front = parked.filter((p) => p.kind === 'cover' || PAGE_FRONT.includes(p.kind))
-    .sort((a, b) => rank(a.kind) - rank(b.kind));
-  const back = parked.filter((p) => PAGE_BACK.includes(p.kind))
-    .sort((a, b) => PAGE_BACK.indexOf(a.kind) - PAGE_BACK.indexOf(b.kind));
+  const front = parked.filter((p) => PAGE_LEAD.includes(p.kind))
+    .sort((a, b) => PAGE_LEAD.indexOf(a.kind) - PAGE_LEAD.indexOf(b.kind));
+  const back = parked.filter((p) => PAGE_TAIL.includes(p.kind))
+    .sort((a, b) => PAGE_TAIL.indexOf(a.kind) - PAGE_TAIL.indexOf(b.kind));
   const body = shelf.bookIds.filter((id) => !parked.some((p) => p.id === id));
   for (const p of parked.filter((x) => x.kind === 'part')) {
     const at = p.before ? body.indexOf(p.before) : -1;
@@ -938,15 +955,16 @@ async function renderBoundRow(shelf, row, blank) {
     if (m) items.push(m);
   }
   let f = 0;
-  while (f < items.length && (items[f].kind === 'cover' || PAGE_FRONT.includes(items[f].kind))) f++;
+  while (f < items.length && PAGE_LEAD.includes(items[f].kind)) f++;
   let b = items.length;
-  while (b > f && PAGE_BACK.includes(items[b - 1].kind)) b--;
+  while (b > f && PAGE_TAIL.includes(items[b - 1].kind)) b--;
   const front = items.slice(0, f);
   const body = items.slice(f, b);
   const back = items.slice(b);
   const cover = front.find((m) => m.kind === 'cover');
   if (cover) row.appendChild(boundCoverTile(shelf, cover));
-  appendPageZone(row, shelf, front.filter((m) => m.kind !== 'cover'), PAGE_FRONT);
+  const offer = missingPages(body);
+  appendPageZone(row, shelf, front.filter((m) => m.kind !== 'cover'), [...PAGE_FRONT, 'prologue'], offer);
   let parts = 0;
   body.forEach((m, i) => {
     if (m.kind === 'part') {
@@ -960,17 +978,27 @@ async function renderBoundRow(shelf, row, blank) {
     row.appendChild(bookTile(m));
   });
   row.appendChild(blank);
-  appendPageZone(row, shelf, back, PAGE_BACK);
+  appendPageZone(row, shelf, back, PAGE_TAIL, offer);
+}
+
+// Which pages a bound book could still take. A book of one title whose
+// first chapter is already its prologue isn't offered another (nor one
+// whose last chapter is its epilogue).
+function missingPages(body) {
+  const titles = body.filter((m) => !isPageMeta(m));
+  const lone = titles.length === 1 ? titles[0] : null;
+  const own = (role) => !!lone && (lone.chapterOrder || []).some((c) => chapterRole(c, lone) === role);
+  return (kind) => !(PAGE_WRITTEN.includes(kind) && own(kind));
 }
 
 // the pages of one end of the book, each in its place, with a faint
-// stand-in (shown on hover) wherever one hasn't been added
-function appendPageZone(row, shelf, have, kinds) {
+// stand-in (shown on hover) wherever one could be added
+function appendPageZone(row, shelf, have, kinds, offer) {
   const left = [...have];
   for (const k of kinds) {
     const i = left.findIndex((m) => m.kind === k);
     if (i >= 0) row.appendChild(pageTile(shelf, left.splice(i, 1)[0], pageKindName(k)));
-    else if (!NO_HOVER) row.appendChild(ghostPage(shelf, k));
+    else if (!NO_HOVER && offer(k)) row.appendChild(ghostPage(shelf, k));
   }
   for (const m of left) row.appendChild(pageTile(shelf, m, pageKindName(m.kind)));
 }
@@ -997,7 +1025,7 @@ function pageTile(shelf, meta, label) {
   span.textContent = label;
   el.appendChild(span);
   el.title = label;
-  el.onclick = () => openPageSheet(shelf, meta, label);
+  el.onclick = () => openPage(shelf, meta, label);
   pressable(el, label);
   el.addEventListener('contextmenu', async (e) => {
     e.preventDefault();
@@ -1012,7 +1040,7 @@ function pageTile(shelf, meta, label) {
         danger: true, value: 'remove'
       }
     ]);
-    if (choice === 'open') openPageSheet(shelf, meta, label);
+    if (choice === 'open') openPage(shelf, meta, label);
     else if (choice === 'remove' && await window.neo.deleteBook(meta.id, label)) {
       shelf.bookIds = shelf.bookIds.filter((b) => b !== meta.id);
       await writeLibrary(library);
@@ -1054,19 +1082,19 @@ async function addPage(shelf, kind, beforeId) {
   if (kind === 'part') {
     at = beforeId ? ids.indexOf(beforeId) : -1;
     if (at < 0) at = (await bodyRange(shelf)).end;
-  } else if (PAGE_FRONT.includes(kind)) {
+  } else if (PAGE_LEAD.includes(kind)) {
     at = 0;
     for (let i = 0; i < ids.length; i++) {
       const m = await shelfMeta(ids[i]);
       const k = m && m.kind;
-      if (k === 'cover' || (PAGE_FRONT.includes(k) && PAGE_FRONT.indexOf(k) < PAGE_FRONT.indexOf(kind))) at = i + 1;
+      if (PAGE_LEAD.includes(k) && PAGE_LEAD.indexOf(k) < PAGE_LEAD.indexOf(kind)) at = i + 1;
       else break;
     }
   } else {
     for (let i = ids.length - 1; i >= 0; i--) {
       const m = await shelfMeta(ids[i]);
       const k = m && m.kind;
-      if (PAGE_BACK.includes(k) && PAGE_BACK.indexOf(k) > PAGE_BACK.indexOf(kind)) at = i;
+      if (PAGE_TAIL.includes(k) && PAGE_TAIL.indexOf(k) > PAGE_TAIL.indexOf(kind)) at = i;
       else break;
     }
   }
@@ -1083,7 +1111,16 @@ async function addPage(shelf, kind, beforeId) {
     }
     label = partLabel(n);
   }
-  openPageSheet(shelf, meta, label);
+  openPage(shelf, meta, label);
+}
+
+// A prologue or an epilogue is story: it opens in the editor, ready to
+// write in. Every other page opens as the sheet it will print on.
+async function openPage(shelf, meta, label) {
+  if (!PAGE_WRITTEN.includes(meta.kind)) { openPageSheet(shelf, meta, label); return; }
+  await openBook(meta.id);
+  // a first visit starts at the top of the page, under its title
+  if (book && book.id === meta.id && !book.lastPosition && book.chapterOrder[0]) focusChapterStart(book.chapterOrder[0]);
 }
 
 /* ---------- a page, open as it will print ---------- */
@@ -1290,11 +1327,14 @@ async function boundShelfMenu(shelf) {
   const missing = [];
   if (NO_HOVER) {
     const have = new Set();
+    const body = [];
     for (const id of shelf.bookIds) {
       const m = await shelfMeta(id);
-      if (m && m.kind) have.add(m.kind);
+      if (isPageMeta(m)) have.add(m.kind);
+      else if (m) body.push(m);
     }
-    missing.push(...[...PAGE_FRONT, ...PAGE_BACK].filter((k) => !have.has(k)));
+    const offer = missingPages(body);
+    missing.push(...[...PAGE_FRONT, 'prologue', 'epilogue', ...PAGE_BACK].filter((k) => !have.has(k) && offer(k)));
     if (missing.length) options.splice(1, 0, { label: t('Add a page…'), value: 'page' });
   }
   const choice = await optionModal(escHtml(t('“{name}” · one book', { name: shelf.name })), null, options);
@@ -1548,6 +1588,7 @@ const STALE_PAINT_MS = 10 * 60 * 1000; // a job that never came back
 
 function paintable(meta) {
   if (!meta || meta.coverImage) return false; // the writer's own art is never painted over
+  if (meta.kind) return false; // a bound book's pages show no cover of their own
   if ((meta.wordCount || 0) < PAINT_AT) return false;
   const art = meta.coverArt;
   if (!art) return true;
@@ -6855,11 +6896,28 @@ async function shelfBookData(shelf, opts = {}) {
       parts += 1;
       const all = await pageParas(m);
       // the page's first line is the part's title; what follows, a quote or a verse
-      const titled = !!(all[0] && !all[0].sceneBreak && !/^[—–]/.test(all[0].text));
+      const titled = !!(all[0] && !all[0].sceneBreak && !isAttribution(all[0]));
       const partTitle = titled ? all[0].text : '';
       const s = push({ kind: 'part', heading: partLabel(parts), partTitle, level: 0, paras: titled ? all.slice(1) : all });
       toc.push({ label: partTitle ? s.heading + ': ' + partTitle : s.heading, num: s.num, level: 0, type: 'part' });
       inPart = true;
+      continue;
+    }
+    if (PAGE_WRITTEN.includes(m.kind)) {
+      // the book's own prologue or epilogue: one unnumbered section (any
+      // chapters the writer gave it run on, a scene break between them)
+      const paras = [];
+      for (const chId of m.chapterOrder || []) {
+        const p = parasFromHtml(await window.neo.readChapter(m.id, chId));
+        if (!p.length) continue;
+        if (paras.length) paras.push({ sceneBreak: true, poetry: false, text: '', runs: [], align: '', html: '' });
+        paras.push(...p);
+      }
+      if (!paras.length) continue;
+      const heading = isUntitled(m.title) ? pageKindName(m.kind) : m.title.trim();
+      const s = push({ kind: 'chapter', role: m.kind, heading, level: 0, paras });
+      toc.push({ label: heading, num: s.num, level: 0, type: 'title' });
+      inPart = false;
       continue;
     }
     // a title and its chapters
