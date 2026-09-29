@@ -5281,7 +5281,7 @@ function parasFromHtml(html) {
     const sceneBreak = p.classList.contains('scene-break');
     const poetry = p.classList.contains('poetry');
     const align = (p.style && p.style.textAlign) || '';
-    const runs = paraRuns(p.innerHTML).filter((r) => r.text);
+    const runs = paraRuns(p.innerHTML, true).filter((r) => r.text);
     const inner = runs.map((r) => {
       let t = escHtml(r.text);
       if (r.i) t = '<i>' + t + '</i>';
@@ -5443,8 +5443,11 @@ const escXml = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 
-// Walk a paragraph's DOM and emit [{text, b, i}] so docx/epub get real bold/italic
-function paraRuns(pHtml) {
+// Walk a paragraph's DOM and emit [{text, b, i}] so docx/epub get real bold/italic.
+// In the manuscript an italic inside an italic is emphasis in a poetry
+// paragraph (itself one italic), and it is set upright, the typesetter's
+// way (flip). Pasted HTML often doubles its italics for nothing; not there.
+function paraRuns(pHtml, flip) {
   const holder = document.createElement('div');
   holder.innerHTML = pHtml;
   const runs = [];
@@ -5458,7 +5461,8 @@ function paraRuns(pHtml) {
           continue;
         }
         const tag = child.tagName;
-        walk(child, b || tag === 'B' || tag === 'STRONG', i || tag === 'I' || tag === 'EM');
+        const it = tag === 'I' || tag === 'EM';
+        walk(child, b || tag === 'B' || tag === 'STRONG', it ? (flip ? !i : true) : i);
       }
     }
   };
