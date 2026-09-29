@@ -96,7 +96,7 @@
   "Cycle": "Alternar",
   "Daily goal": "Objetivo diario",
   "daily words": "palabras del día",
-  "Darling restored to its original spot": "Descarte restaurado en su lugat original",
+  "Darling restored to its original spot": "Descarte restaurado en su lugar original",
   "Darlings": "Descartes",
   "Day ends at": "El día termina a las",
   "Delete chapter": "Eliminar capítulo",
@@ -424,7 +424,7 @@
     "other": "{n} capítulos"
   },
   "{n} replaced across the whole book — {key} to undo": {
-    "one": "{n} cambios en todo el libro: {key} para deshacer",
+    "one": "{n} cambio en todo el libro: {key} para deshacer",
     "other": "{n} cambios en todo el libro: {key} para deshacer"
   },
   "{n} selected": {
