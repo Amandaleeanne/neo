@@ -2185,7 +2185,12 @@ function wireChapterBody(body, chId) {
       const parts = text.replace(/\r/g, '').split(/\n+/).filter((p) => p.trim());
       parts.forEach((p, i) => {
         if (i > 0) document.execCommand('insertParagraph');
-        document.execCommand('insertText', false, p.trim());
+        // plain text written in Markdown keeps its *italics* and **bold**
+        const styled = markdownInline(p.trim());
+        if (styled) {
+          document.execCommand('insertHTML', false, styled);
+          stripJunkSpans(body); // the engine wraps inserted HTML in style spans
+        } else document.execCommand('insertText', false, p.trim());
       });
     }
   });
@@ -3022,6 +3027,120 @@ function cleanPasteHtml(html) {
 }
 
 // Em dash, ellipsis, smart quotes:
+// Markdown emphasis, for writers whose fingers already know it: typing the
+// closing * of *word* sets it in italic, the closing ** of **word** in bold
+// (_word_ and __word__ too). Only in the manuscript and Notes, only when the
+// marks hug a word the way Markdown wants them to, so 2 * 3, f***, a lone
+// footnote * or a snake_case name stay as typed. ⌘Z right after gives the
+// marks back as plain characters.
+const escRe = (c) => c.replace(/\*/g, '\\*');
+// Which emphasis the typed mark closes, if any, from the paragraph's text
+// before the caret: ***word*** (bold italic), **word**, *word*. Nested
+// emphasis is fine: **a *b* c** and *a **b** c* both close.
+function mdEmphasisMatch(before, mark) {
+  const m = escRe(mark);
+  const edge = `(^|[^\\p{L}\\p{N}${m}\\\\])`;
+  const inner = `(?!\\s|${m})(.*?[^\\s\\\\])`;
+  const tries = [
+    { open: 3, part: 2, bold: true, italic: true },
+    { open: 2, part: 1, bold: true, italic: false },
+    { open: 1, part: 0, bold: false, italic: true }
+  ];
+  for (const t of tries) {
+    const r = before.match(new RegExp(`${edge}${m.repeat(t.open)}${inner}${m.repeat(t.part)}$`, 'u'));
+    // the inner text must not end on the mark itself (that is a longer mark
+    // still being typed), nor hold an emphasis opened but not yet closed
+    // (in *a **b the next * closes **b, not *a)
+    if (r && !r[2].endsWith(mark) && !(t.part === 0 && before.endsWith(mark)) && balancedRuns(r[2], mark)) {
+      return { ...t, inner: r[2], start: before.length - (r[0].length - r[1].length) };
+    }
+  }
+  return null;
+}
+function balancedRuns(text, mark) {
+  const counts = {};
+  for (const run of text.match(new RegExp(escRe(mark) + '+', 'g')) || []) counts[run.length] = (counts[run.length] || 0) + 1;
+  return Object.values(counts).every((n) => n % 2 === 0);
+}
+// character offset within el → a (text node, offset) point
+function pointAt(el, offset) {
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let n; let left = offset; let last = null;
+  while ((n = walk.nextNode())) {
+    if (left <= n.textContent.length) return { node: n, offset: left };
+    left -= n.textContent.length;
+    last = n;
+  }
+  return last ? { node: last, offset: last.textContent.length } : { node: el, offset: 0 };
+}
+function selectChars(el, from, to) {
+  const a = pointAt(el, from); const b = pointAt(el, to);
+  const r = document.createRange();
+  r.setStart(a.node, a.offset);
+  r.setEnd(b.node, b.offset);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+let mdJustSet = null; // what was just turned into styling, for ⌘Z
+function markdownEmphasis(e, body, range) {
+  if (e.key !== '*' && e.key !== '_') return false;
+  if (!body.matches || !body.matches('.chapter-body, #aux-editor')) return false;
+  if (!range.collapsed) return false;
+  const start = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
+  const block = (start && start.closest('p, div, li')) || body;
+  if (!body.contains(block)) return false;
+  const pre = document.createRange();
+  pre.setStart(block, 0);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const before = pre.toString();
+  const hit = mdEmphasisMatch(before, e.key);
+  if (!hit) return false;
+  e.preventDefault();
+  let steps = 0;
+  const end = before.length;
+  // the part of the closing mark already typed, then the opening mark
+  if (hit.part) { selectChars(block, end - hit.part, end); document.execCommand('delete'); steps++; }
+  selectChars(block, hit.start, hit.start + hit.open);
+  document.execCommand('delete'); steps++;
+  // the words between them get the styling ⌘B and ⌘I give
+  const innerEnd = end - hit.part - hit.open;
+  const cmds = [hit.italic && 'italic', hit.bold && 'bold'].filter(Boolean);
+  for (const cmd of cmds) {
+    selectChars(block, hit.start, innerEnd);
+    if (!document.queryCommandState(cmd)) { document.execCommand(cmd); steps++; }
+  }
+  selectChars(block, innerEnd, innerEnd);
+  // what comes next is typed plain again
+  for (const cmd of cmds) if (document.queryCommandState(cmd)) document.execCommand(cmd);
+  mdJustSet = { steps, key: e.key, block, end };
+  return true;
+}
+// A pasted line of Markdown as HTML with <b> and <i>, or null when it has
+// no emphasis (so ordinary text keeps pasting as text). Same rules as typing.
+function markdownInline(line) {
+  const edge = '(^|[^\\p{L}\\p{N}*_\\\\])';
+  const tail = '(?![\\p{L}\\p{N}])';
+  let html = escHtml(line);
+  const before = html;
+  html = html.replace(new RegExp(`${edge}(\\*\\*\\*|___)(?!\\s)(.+?)(?<![\\s\\\\])\\2${tail}`, 'gu'), '$1<b><i>$3</i></b>');
+  html = html.replace(new RegExp(`${edge}(\\*\\*|__)(?!\\s)(.+?)(?<![\\s\\\\])\\2${tail}`, 'gu'), '$1<b>$3</b>');
+  html = html.replace(new RegExp(`${edge}(\\*|_)(?![\\s*_])(.+?)(?<![\\s\\\\*_])\\2${tail}`, 'gu'), '$1<i>$3</i>');
+  return html === before ? null : html;
+}
+// ⌘Z (Ctrl+Z) right after: the styling goes and the marks come back as typed
+document.addEventListener('keydown', (e) => {
+  const just = mdJustSet;
+  mdJustSet = null;
+  if (!just || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ') return;
+  e.preventDefault();
+  e.stopPropagation();
+  for (let i = 0; i < just.steps; i++) document.execCommand('undo');
+  // the text is back as it was typed; the mark that was about to close it goes in
+  if (just.block.isConnected) selectChars(just.block, just.end, just.end);
+  document.execCommand('insertText', false, just.key);
+}, true);
+
 function smartKeys(e, body) {
   // a field can reach smartKeys twice (its own handler and the page-wide
   // one below): the first pass wins
@@ -3040,6 +3159,7 @@ function smartKeys(e, body) {
     return node.textContent.slice(Math.max(0, range.startOffset - n), range.startOffset);
   };
 
+  if (markdownEmphasis(e, body, range)) return;
   if (e.key === '-' && prevChars(1) === '-') {
     e.preventDefault();
     document.execCommand('delete');
@@ -6046,6 +6166,7 @@ function shortcutSections() {
     { title: tk('Formatting'), rows: [
       [K('⌘B', 'Ctrl+B'), tk('Bold')],
       [K('⌘I', 'Ctrl+I'), tk('Italic')],
+      [['*…*', '**…**', '***…***'], tk('Italic, bold, the Markdown way'), tk('Typed around a word (or pasted). Undo right after keeps the asterisks.')],
       [K('⌘⇧L', 'Ctrl+Shift+L'), tk('Align paragraph left')],
       [K('⌘⇧C', 'Ctrl+Shift+C'), tk('Center paragraph')],
       [K('⌘⇧R', 'Ctrl+Shift+R'), tk('Align paragraph right')],
@@ -6497,8 +6618,13 @@ function paraRuns(pHtml, flip) {
           continue;
         }
         const tag = child.tagName;
-        const it = tag === 'I' || tag === 'EM';
-        walk(child, b || tag === 'B' || tag === 'STRONG', it ? (flip ? !i : true) : i);
+        // the engine writes bold italic as <b style="font-style: italic"> (or
+        // the other way round) when ⌘I meets ⌘B: the style counts like a tag
+        const st = child.style || {};
+        const fw = String(st.fontWeight || '').toLowerCase();
+        const it = tag === 'I' || tag === 'EM' || String(st.fontStyle || '').toLowerCase() === 'italic';
+        const bo = tag === 'B' || tag === 'STRONG' || fw === 'bold' || parseInt(fw, 10) >= 600;
+        walk(child, b || bo, it ? (flip ? !i : true) : i);
       }
     }
   };
