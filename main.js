@@ -118,6 +118,11 @@ function setUiLanguage(code) {
   const settings = readSettings();
   settings.uiLanguage = uiLanguage;
   writeSettings(settings);
+  // no dictionary picked yet: spellcheck moves with the interface
+  if (!SPELL_LANGUAGES[chosenSpellLanguage()] && defaultSpellLanguage() !== spellLanguage) {
+    spellLanguage = defaultSpellLanguage();
+    loadSpellDictionary(spellLanguage);
+  }
   try { buildMenu(); } catch (err) { logError('menu', err); }
   sendToWindow({ type: 'uiLanguage', value: uiLanguage });
 }
@@ -897,7 +902,9 @@ async function importFile(fp) {
   const bylineOf = (s) => {
     const en = s.match(/^by\s+(.{2,60})$/i);
     if (en) return en[1];
-    const m = s.match(/^(?:par|por|von|di|door|de|autor:?|автор:?)\s+(.{2,60})$/iu);
+    // Romanian "de Ion Creangă" is lowercase on a title page; a capital "De"
+    // opens titles ("De Profundis", Dutch "De Eerste Dag") and stays text
+    const m = s.match(/^(?:par|por|von|di|door|autor:?|автор:?)\s+(.{2,60})$/iu) || s.match(/^de\s+(.{2,60})$/u);
     if (!m || /[.!?,;…]/.test(m[1])) return null;
     const words = m[1].trim().split(/\s+/);
     const particle = /^(de|da|di|do|dos|das|du|des|del|della|la|le|van|von|der|den|ten|ter|y|e)$/;
@@ -1148,19 +1155,26 @@ async function loadSpellDictionary(code) {
   return true;
 }
 
-function initSpell() {
+// One rule for every language: a dictionary picked in Edit → Spellcheck
+// Language wins. Until there is one, spellcheck follows the interface
+// language when NEO has its dictionary (fr-CA → fr), else US English.
+// Nothing is saved on the writer's behalf, so switching the interface back
+// takes the dictionary (and the typed quotes) along with it.
+function chosenSpellLanguage() {
   const saved = readJSON(LIBRARY_FILE, null);
-  const readable = !!saved && typeof saved === 'object' && !Array.isArray(saved);
-  const library = readable ? saved : {};
-  // Resolve this once, before the renderer reads the library. Keep an
-  // explicit choice even with Romanian menus, and keep other locales'
-  // existing default and quotation-mark fallback unchanged. A library.json
-  // that doesn't parse is left exactly as it is: never rewritten from here.
-  if (!library.spellLanguage && uiLanguage === 'ro') {
-    library.spellLanguage = 'ro';
-    if (readable) writeJSON(LIBRARY_FILE, library);
-  }
-  spellLanguage = SPELL_LANGUAGES[library.spellLanguage] ? library.spellLanguage : 'en-US';
+  return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved.spellLanguage : undefined;
+}
+
+function defaultSpellLanguage() {
+  const ui = String(uiLanguage || 'en');
+  if (SPELL_LANGUAGES[ui]) return ui;
+  const base = ui.split('-')[0];
+  return SPELL_LANGUAGES[base] ? base : 'en-US';
+}
+
+function initSpell() {
+  const chosen = chosenSpellLanguage();
+  spellLanguage = SPELL_LANGUAGES[chosen] ? chosen : defaultSpellLanguage();
   loadSpellDictionary(spellLanguage);
 }
 

@@ -202,41 +202,42 @@ function mainContext(temp, systemLocale, settings = {}, library = {}, raw = null
   return { context, loads, handlers, read: () => JSON.parse(fs.readFileSync(path.join(temp, 'library.json'))) };
 }
 
-test('Romanian default is persisted before the renderer reads; explicit choices survive', async (t) => {
+test('spellcheck follows the interface until a dictionary is picked; nothing is saved for the writer', async (t) => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'neo-spell-test-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const fresh = mainContext(temp, 'ro_RO', {}, { authorName: 'Autor', customWords: ['Zorțilă'] });
-  assert.equal(fresh.read().spellLanguage, 'ro');
+  assert.equal(fresh.read().spellLanguage, undefined); // not saved on the writer's behalf
   assert.equal(fresh.read().authorName, 'Autor');
-  assert.equal(fresh.handlers.get('library:read')().spellLanguage, 'ro');
   assert.equal(vm.runInContext('spellLanguage', fresh.context), 'ro');
   assert.equal(fresh.loads[0].language, 'ro');
   assert.deepEqual(Array.from(fresh.loads[0].custom), ['Zorțilă']);
+  // switching the interface takes a dictionary nobody picked along with it
   vm.runInContext('setUiLanguage("en")', fresh.context);
-  assert.equal(fresh.read().spellLanguage, 'ro');
-  assert.equal(fresh.loads.length, 1);
+  assert.equal(vm.runInContext('spellLanguage', fresh.context), 'en-US');
+  assert.equal(fresh.loads.length, 2);
+  assert.equal(fresh.loads[1].language, 'en-US');
+  assert.equal(fresh.read().spellLanguage, undefined);
   await Promise.resolve();
 
-  const restarted = mainContext(temp, 'en-US', { uiLanguage: 'en' }, fresh.read());
-  assert.equal(restarted.loads[0].language, 'ro');
-  await Promise.resolve();
+  // the same rule for every language: its own dictionary when NEO has one
+  for (const [locale, code] of [['ru_RU', 'ru'], ['fr-CA', 'fr'], ['de', 'de'], ['pl', 'pl'], ['en-US', 'en-US'], ['it', 'en-US'], ['pt-BR', 'en-US']]) {
+    const ui = mainContext(temp, locale);
+    assert.equal(ui.loads[0].language, code, locale);
+    assert.equal(ui.read().spellLanguage, undefined);
+    await Promise.resolve();
+  }
 
+  // a dictionary picked in Edit → Spellcheck Language wins, whatever the interface
   for (const code of ['en-US', 'en-GB', 'fr', 'ro']) {
     const explicit = mainContext(temp, 'ro-RO', {}, { spellLanguage: code });
     assert.equal(explicit.loads[0].language, code);
     assert.equal(explicit.read().spellLanguage, code);
+    vm.runInContext('setUiLanguage("de")', explicit.context);
+    assert.equal(explicit.loads.length, 1);
     await Promise.resolve();
   }
-  const savedUi = mainContext(temp, 'en-US', { uiLanguage: 'ro' });
-  assert.equal(savedUi.read().spellLanguage, 'ro');
-  await Promise.resolve();
-  for (const locale of ['en-US', 'fr', 'de', 'pl']) {
-    const existing = mainContext(temp, locale);
-    assert.equal(existing.loads[0].language, 'en-US');
-    assert.equal(existing.read().spellLanguage, undefined); // preserve quotation fallback to UI language
-    await Promise.resolve();
-  }
-  // a library.json that doesn't parse is never overwritten by the default
+
+  // a library.json that doesn't parse is never touched
   const broken = '{"shelves": [{"id": "shelf-1", "name": "Mine"';
   const unreadable = mainContext(temp, 'ro_RO', {}, {}, broken);
   assert.equal(fs.readFileSync(path.join(temp, 'library.json'), 'utf8'), broken);
