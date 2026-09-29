@@ -218,8 +218,8 @@ function optionModal(title, message, options) {
     const bd = document.createElement('div');
     bd.className = 'modal-backdrop';
     const buttons = options.map((o, i) =>
-      `<button class="fr-choice" data-i="${i}" style="width:100%;margin-bottom:8px;${o.danger ? 'border-color:#6b3a34' : ''}">
-        <strong${o.danger ? ' style="color:#d97b6c"' : ''}>${o.label}</strong>
+      `<button class="fr-choice${o.danger ? ' danger' : ''}" data-i="${i}" style="width:100%;margin-bottom:8px">
+        <strong>${o.label}</strong>
         ${o.desc ? `<span>${o.desc}</span>` : ''}
       </button>`).join('');
     bd.innerHTML = `
@@ -2172,6 +2172,7 @@ function wireChapterBody(body, chId) {
     if (spellOn) scheduleSpellRescan(chId, body);
     updateCounters();
     scheduleNavRefresh();
+    if (!typewriterEnabled) revealCaret();
   });
   // paste without formatting
   body.addEventListener('paste', (e) => {
@@ -2309,6 +2310,45 @@ function styleKeepScroll(e) {
   sc.scrollTop = keep;
   requestAnimationFrame(() => { sc.scrollTop = keep; });
   return true;
+}
+
+// ⌥⌘↓ / ⌥⌘↑ (Ctrl+Alt on Windows and Linux): the start of the next or the
+// previous chapter, without opening the pane
+function gotoChapter(step) {
+  if (!book || $('#editor-view').hidden || !book.chapterOrder.length) return;
+  if (document.querySelector('.modal-backdrop:not([hidden])')) return;
+  if (currentTab !== 'manuscript') switchTab('manuscript');
+  const order = book.chapterOrder;
+  let at = order.indexOf(currentChapterId);
+  if (at < 0) at = step > 0 ? -1 : order.length;
+  const to = Math.max(0, Math.min(order.length - 1, at + step));
+  if (to === at) return;
+  const sec = document.querySelector(`.chapter[data-id="${order[to]}"]`);
+  if (!sec) return;
+  focusChapterStart(order[to]);
+  sec.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+}
+
+// The caret never types out of sight: an Enter (or anything else) on the
+// window's bottom line brings the new line into view, with a little room
+// below it. (Typewriter scrolling keeps the line centered on its own.)
+function revealCaret() {
+  const sc = $('#paper-scroll');
+  const sel = window.getSelection();
+  if (!sc || !sel.rangeCount || !sc.contains(sel.anchorNode)) return;
+  const r = sel.getRangeAt(0).cloneRange();
+  r.collapse(false);
+  let rect = r.getBoundingClientRect();
+  if (!rect.height) {
+    // an empty line has no text to measure: its paragraph does
+    const node = r.endContainer.nodeType === Node.ELEMENT_NODE ? r.endContainer : r.endContainer.parentElement;
+    if (!node) return;
+    rect = node.getBoundingClientRect();
+  }
+  const box = sc.getBoundingClientRect();
+  const room = Math.min(48, box.height / 6);
+  if (rect.bottom > box.bottom - room) sc.scrollTop += rect.bottom - (box.bottom - room);
+  else if (rect.top < box.top + 8) sc.scrollTop -= box.top + 8 - rect.top;
 }
 
 // Backspace at the very start of a chapter swallows an empty chapter above it
@@ -3068,8 +3108,11 @@ function smartKeys(e, body) {
   if (e.key === '"' || e.key === "'") {
     e.preventDefault();
     const before = prevChars(1);
-    const opening = before === '' || /[\s\(\[\{—‘“«„>]/.test(before);
     const q = e.key === '"' ? bookQuotes(body) : quoteStyle();
+    let opening = before === '' || /[\s\(\[\{‘“«„>]/.test(before);
+    // after a dash, a quote usually closes speech that was cut off ("I was
+    // just—"); it opens one only when no quotation is open in the paragraph
+    if (before === '—' || before === '–') opening = !quoteIsOpen(range, e.key === '"' ? q : { open: '‘', close: '’' });
     let ch;
     if (e.key === "'") {
       // most languages type ' as an apostrophe only; English and Dutch also
@@ -3080,6 +3123,30 @@ function smartKeys(e, body) {
     }
     document.execCommand('insertText', false, ch);
   }
+}
+
+// Is a quotation open at the caret, in the paragraph so far? Opening marks
+// against closing ones; an apostrophe (’ between two letters) is no quote.
+function quoteIsOpen(range, q) {
+  let el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
+  const block = el && el.closest ? el.closest('p, div') : null;
+  if (!block) return false;
+  const pre = document.createRange();
+  pre.selectNodeContents(block);
+  try { pre.setEnd(range.startContainer, range.startOffset); } catch { return false; }
+  const text = pre.toString();
+  const open = q.open.trim();
+  const close = q.close.trim();
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === open && open !== close) depth++;
+    else if (c === close) {
+      if (close === '’' && /\p{L}/u.test(text[i - 1] || '') && /\p{L}/u.test(text[i + 1] || '')) continue;
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return depth > 0;
 }
 
 // The quotation marks of the language being written: the spellcheck
@@ -3562,7 +3629,7 @@ function finishChapterDrag(e) {
   // to keep the pane available after an in-pane drop, even before focus returns.
   const pane = $('#nav-pane');
   const r = pane.getBoundingClientRect();
-  if (e.clientX < r.left || e.clientX >= r.right || e.clientY < r.top || e.clientY >= r.bottom) {
+  if (pane.dataset.pinned !== '1' && (e.clientX < r.left || e.clientX >= r.right || e.clientY < r.top || e.clientY >= r.bottom)) {
     pane.classList.remove('open');
   }
   if (navRefreshPending) renderNav();
@@ -3652,13 +3719,13 @@ function wireHoverPane(hotzone, pane, isPinnable) {
     pane.classList.remove('open');
   });
 }
-wireHoverPane($('#nav-hotzone'), $('#nav-pane'), false);
+wireHoverPane($('#nav-hotzone'), $('#nav-pane'), true);
 wireHoverPane($('#side-hotzone'), $('#side-pane'), true);
 
 // leaving the window closes unpinned panes (they used to stick open)
 function closeUnpinnedPanes() {
   // Wayland can blur the window as a native chapter drag begins.
-  if (!chapterDragActive) $('#nav-pane').classList.remove('open');
+  if (!chapterDragActive && $('#nav-pane').dataset.pinned !== '1') $('#nav-pane').classList.remove('open');
   if ($('#side-pane').dataset.pinned !== '1') $('#side-pane').classList.remove('open');
 }
 document.documentElement.addEventListener('mouseleave', closeUnpinnedPanes);
@@ -3674,15 +3741,31 @@ $('#editor-view').addEventListener('wheel', (e) => {
   scroller.scrollTop += e.deltaY;
 }, { passive: true });
 
-$('#side-pin').onclick = () => {
-  const pane = $('#side-pane');
-  const pinned = pane.dataset.pinned === '1';
-  pane.dataset.pinned = pinned ? '0' : '1';
-  $('#side-pin').classList.toggle('pinned', !pinned);
-  $('#side-pin').setAttribute('aria-pressed', !pinned ? 'true' : 'false');
-  $('#editor-view').classList.toggle('side-pinned', !pinned);
-  if (!pinned) pane.classList.add('open');
-};
+// Keep Open, on either pane: the page moves over to make room, and the
+// choice stays for next time (on this computer)
+function pinPane(side, on) {
+  const pane = $(side === 'nav' ? '#nav-pane' : '#side-pane');
+  const pin = $(side === 'nav' ? '#nav-pin' : '#side-pin');
+  pane.dataset.pinned = on ? '1' : '0';
+  pin.classList.toggle('pinned', on);
+  pin.setAttribute('aria-pressed', on ? 'true' : 'false');
+  $('#editor-view').classList.toggle(side + '-pinned', on);
+  if (on) pane.classList.add('open');
+  try {
+    const kept = JSON.parse(localStorage.getItem('neo-pinned-panes') || '{}');
+    kept[side] = on;
+    localStorage.setItem('neo-pinned-panes', JSON.stringify(kept));
+  } catch { /* fine: it just won't be remembered */ }
+}
+$('#side-pin').onclick = () => pinPane('side', $('#side-pane').dataset.pinned !== '1');
+$('#nav-pin').onclick = () => pinPane('nav', $('#nav-pane').dataset.pinned !== '1');
+if (!NO_HOVER) {
+  try {
+    const kept = JSON.parse(localStorage.getItem('neo-pinned-panes') || '{}');
+    if (kept.nav) pinPane('nav', true);
+    if (kept.side) pinPane('side', true);
+  } catch { /* nothing kept */ }
+}
 
 /* ================================================================== */
 /*  TABS — Manuscript / Notes / Outline / Darlings                     */
@@ -5874,15 +5957,17 @@ const BODY_FONTS = {
   'Hoefler Text': '"Hoefler Text", Georgia, serif',
   'Iowan Old Style': '"Iowan Old Style", Georgia, serif',
   'Cambria': 'Cambria, Georgia, serif',
-  'Constantia': 'Constantia, Georgia, serif'
+  'Constantia': 'Constantia, Georgia, serif',
+  // a sans-serif for those who write in one (bundled, so it's the same everywhere)
+  'Jost': '"Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif'
 };
 
 // Hoefler Text and Iowan Old Style ship only with macOS; elsewhere they
 // would fall back to Georgia, so offer the fonts Windows actually has.
 // Keep in step with bodyFonts in main.js.
 const BODY_FONT_CHOICES = IS_MAC
-  ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style']
-  : ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia'];
+  ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style', 'Jost']
+  : ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia', 'Jost'];
 
 function applyFonts() {
   const f = library.fonts || {};
@@ -5901,7 +5986,7 @@ function applyFonts() {
   document.body.classList.toggle('bright', library.uiBright === undefined ? SYSTEM_CONTRAST.matches : !!library.uiBright);
   reportViewState();
   // View → Interface Size: everything but the page
-  const uiZoom = [1, 1.25, 1.5, 2].includes(library.uiZoom) ? library.uiZoom : 1;
+  const uiZoom = [1, 1.25, 1.5, 2, 2.5, 3].includes(library.uiZoom) ? library.uiZoom : 1;
   document.documentElement.style.setProperty('--ui-zoom', uiZoom);
   document.documentElement.classList.toggle('ui-zoomed', uiZoom > 1);
   if (window.neo.uiZoomState) window.neo.uiZoomState(uiZoom);
@@ -6117,6 +6202,8 @@ function shortcutSections() {
       [[K('⌘⇧F', 'Ctrl+Shift+F'), K('⌘Enter', 'Ctrl+Enter')], tk('Toggle full screen')],
       [K('⌘⇧T', 'Ctrl+Shift+T'), tk('Toggle typewriter scrolling')],
       [K('⌘⇧O', 'Ctrl+Shift+O'), tk('Cycle focus mode'), tk('Off → paragraph → sentence → off.')],
+      [K('⌥⌘↓', 'Ctrl+Alt+↓'), tk('Go to the next chapter')],
+      [K('⌥⌘↑', 'Ctrl+Alt+↑'), tk('Go to the previous chapter')],
       [K('⌘M', 'Ctrl+M'), tk('Minimize window')],
       [K('⌘W', 'Ctrl+W'), tk('Close window')],
       [['F6', K('⌃Tab', 'Ctrl+Tab')], tk('Move between the page, the chapters, the notes and the bottom bar'), tk('Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.')],
@@ -7306,12 +7393,36 @@ function updateDialogShow(state, info = {}) {
 async function checkForUpdate() {
   if (updateDialog) { updateDialog.focus(); return; }
   const res = await window.neo.checkForUpdate();
-  if (res.error) { toast(t('Couldn’t check for updates — try again later')); return; }
-  if (!res.hasUpdate) { toast(t('You’re on the latest version ({version})', { version: res.currentVersion })); return; }
+  // the answer comes in a window, like an update does: a line at the foot
+  // of the screen was too easy to miss
+  if (res.error) { updateNotice(t('Couldn’t check for updates — try again later')); return; }
+  if (!res.hasUpdate) { updateNotice(t('NEO is up to date'), t('You have {version}.', { version: res.currentVersion })); return; }
   updateDialog = updateDialogBox(res);
   if (!res.canInstall) updateDialogShow('release', res);
   else if (res.ready) updateDialogShow('ready', res);
   else updateDialogShow('offer', res);
+}
+
+function updateNotice(title, line) {
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = `
+    <div class="modal" style="width:400px" role="dialog" aria-modal="true">
+      <h2 style="font-size:16px"></h2>
+      <p class="up-text" hidden></p>
+      <div style="text-align:right;margin-top:14px"><button class="m-ok btn-gold">${t('OK')}</button></div>
+    </div>`;
+  bd.querySelector('h2').textContent = title;
+  if (line) { bd.querySelector('.up-text').hidden = false; bd.querySelector('.up-text').textContent = line; }
+  document.body.appendChild(bd);
+  const close = () => { bd.remove(); if (updateDialog === bd) updateDialog = null; };
+  bd.close = close;
+  bd.querySelector('.m-ok').onclick = close;
+  bd.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+  updateDialog = bd; // asking again while it's open just brings it forward
+  bd.querySelector('.m-ok').focus();
 }
 
 // messages from the updater in the main process
@@ -7338,8 +7449,8 @@ async function showAbout() {
   bd.innerHTML = `
     <div class="modal" style="width:340px;text-align:center">
       <h2 style="font-size:22px;letter-spacing:6px">NEO</h2>
-      <p style="color:#999">${t('Version {version}', { version: v })}</p>
-      <p style="font-size:13px;color:#777">${t('A word processor for authors.')}</p>
+      <p class="about-version">${t('Version {version}', { version: v })}</p>
+      <p class="about-line">${t('A word processor for authors.')}</p>
       <div style="margin-top:16px">
         <button class="m-ok btn-gold">${t('Back to writing')}</button>
       </div>
@@ -7356,6 +7467,13 @@ window.neo.onMenu(async (msg) => {
   // (styles.css); the window says when it goes in and out, whatever is open
   if (msg.type === 'fullScreen') { document.body.classList.toggle('full-screen', !!msg.value); return; }
   if ($('#keyboard-shortcuts') && msg.type !== 'help') return;
+  // a window the menu opens (⌘, for Goals, say) never stacks on one that's
+  // already open: pressing it again used to pile up overlays
+  const WINDOWS = ['stats', 'about', 'emailSettings', 'coverArt', 'reshelve', 'checkUpdate'];
+  if (WINDOWS.includes(msg.type) && document.querySelector('.modal-backdrop:not([hidden])')) {
+    if (msg.type === 'checkUpdate' && updateDialog) updateDialog.focus();
+    return;
+  }
   if (msg.type === 'help') showHelp();
   if (msg.type === 'about') showAbout();
   if (msg.type === 'checkUpdate') checkForUpdate();
@@ -7376,6 +7494,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'focusCycle') cycleFocus();
   if (msg.type === 'import') importBooks();
   if (msg.type === 'stats') openStats();
+  if (msg.type === 'chapterStep') gotoChapter(msg.value);
   if (msg.type === 'writingStyle') {
     library.writingStyle = msg.value;
     await writeLibrary(library);
@@ -7465,7 +7584,8 @@ const LINUX_BODY_FONTS = {
   'TeX Gyre Pagella': '"TeX Gyre Pagella", Palatino, "Palatino Linotype", serif',
   'Libre Baskerville': '"Libre Baskerville", Baskerville, Georgia, serif',
   'Alegreya': '"Alegreya", "Hoefler Text", Georgia, serif',
-  'Source Serif Pro': '"Source Serif Pro", "Iowan Old Style", Georgia, serif'
+  'Source Serif Pro': '"Source Serif Pro", "Iowan Old Style", Georgia, serif',
+  'Jost': '"Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif'
 };
 
 function installLinuxBodyFonts() {

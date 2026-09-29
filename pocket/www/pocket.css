@@ -39,7 +39,7 @@
 #nav-pane.open { transform: translateX(0); }
 
 /* desktop-only powers stay out of sight */
-#import-btn, #zoom-control, #dragstrip, #side-pin { display: none !important; }
+#import-btn, #zoom-control, #dragstrip, #side-pin, #nav-pin { display: none !important; }
 :root { --kb: 0px; } /* the on-screen keyboard's height, from pocket-bridge.js */
 #nav-pane, #side-pane { bottom: calc(52px + var(--kb)); }
 
@@ -88,3 +88,13 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
    are lighter work for the compositor */
 .book { contain: layout paint; box-shadow: 2px 3px 6px rgba(0,0,0,0.4); }
 .book:hover, .new-book:hover { transform: none; }
+
+/* Light: the ☰ and ⋯ buttons and the ⋯ sheet in the light room */
+body.light #pocket-chapters, body.light #pocket-more { color: #6a665e; }
+body.light #pocket-menu { background: rgba(60, 55, 45, 0.28); }
+body.light #pocket-menu-sheet { background: #fbfaf8; border-color: #dcd7ce; color: #2b2926; }
+body.light .pm-row { border-bottom-color: #ebe7e0; }
+body.light .pm-label { color: #6a665e; }
+body.light .pm-seg button, body.light .pm-actions button { background: #fff; border-color: #d6d1c7; color: #2b2926; }
+body.light .pm-seg button.on { background: #f3ead6; border-color: #b89a5c; color: #5c4418; }
+body.light .book { box-shadow: 2px 3px 6px rgba(0,0,0,0.2); }

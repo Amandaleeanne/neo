@@ -379,7 +379,10 @@
   // The keyboard's height becomes a CSS variable, and Pocket's own bar and
   // panes sit above it (pocket.css). iOS is told nothing about resizing;
   // its own attempts left a black band behind when the keyboard went away.
+  // Android shrinks the window for its keyboard by itself, so there the
+  // variable stays 0: lifting the page again left a keyboard-sized gap (#142).
   document.addEventListener('DOMContentLoaded', () => {
+    if (!isIOS()) return;
     try {
       const K = window.Capacitor.Plugins.Keyboard;
       if (!K) return;

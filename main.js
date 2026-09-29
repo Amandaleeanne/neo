@@ -1117,6 +1117,13 @@ async function dailyBackup() {
 
 // ---------------------------------------------------------------------------
 // Window
+// The window's own color, seen for a moment before the page draws and at the
+// edges while it resizes: the room's color, dark or (View → Page → Light) light
+function roomColor(theme) { return theme === 'light' ? '#efede8' : '#191919'; }
+function libraryPageTheme() {
+  try { return JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8')).pageTheme || 'night'; } catch { return 'night'; }
+}
+
 // ---------------------------------------------------------------------------
 function createWindow() {
   // the window comes back the size and place it was left, when that place
@@ -1139,7 +1146,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#191919',
+    backgroundColor: roomColor(libraryPageTheme()),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1172,6 +1179,22 @@ function createWindow() {
   win.on('resize', remember);
   win.on('move', remember);
   win.on('close', remember);
+
+  // Right-click on text: Cut, Copy, Paste, Select All. On a Mac, macOS adds
+  // Look Up, Writing Tools and Services on its own when the menu knows where
+  // the selection sits (the frame). NEO's own right-click menus (shelves,
+  // covers, chapter headings, flagged words) cancel the event first, so this
+  // never comes up over them.
+  win.webContents.on('context-menu', (_e, params) => {
+    if (!params.isEditable && !params.selectionText) return;
+    const can = params.editFlags || {};
+    const items = [];
+    if (params.isEditable) items.push({ role: 'cut', label: t('Cut'), enabled: !!can.canCut });
+    items.push({ role: 'copy', label: t('Copy'), enabled: !!can.canCopy });
+    if (params.isEditable) items.push({ role: 'paste', label: t('Paste'), enabled: !!can.canPaste });
+    items.push({ type: 'separator' }, { role: 'selectAll', label: t('Select All') });
+    Menu.buildFromTemplate(items).popup({ window: win, frame: params.frame });
+  });
 
   // NEO does its own spellchecking (see spell:* handlers) — the engine's
   // checker proved unreliable at scanning existing text, so it stays off
@@ -1324,17 +1347,21 @@ ipcMain.on('typewriter:state', (_e, on) => {
 // View → Interface Size shows its choice
 let uiZoomState = 1;
 ipcMain.on('uizoom:state', (_e, z) => {
-  z = [1, 1.25, 1.5, 2].includes(z) ? z : 1;
+  z = [1, 1.25, 1.5, 2, 2.5, 3].includes(z) ? z : 1;
   if (z === uiZoomState) return;
   uiZoomState = z;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
 // View menu ticks: the focus level, the page, and Brighter Interface
 let viewState = { focus: 'off', pageTheme: 'night', uiBright: false };
-ipcMain.on('view:state', (_e, st) => {
+ipcMain.on('view:state', (e, st) => {
   st = st || {};
   const next = { focus: st.focus || 'off', pageTheme: st.pageTheme || 'night', uiBright: !!st.uiBright };
   if (JSON.stringify(next) === JSON.stringify(viewState)) return;
+  if (next.pageTheme !== viewState.pageTheme) {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (w && !w.isDestroyed()) w.setBackgroundColor(roomColor(next.pageTheme));
+  }
   viewState = next;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
@@ -1354,10 +1381,10 @@ function buildMenu() {
   // them, so the menu names the faces bundled in fonts/ (see styles.css).
   // The Windows list stays the one the renderer already understands.
   const bodyFonts = isMac
-    ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style']
+    ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style', 'Jost']
     : isWin
-      ? ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia']
-      : ['Gelasio', 'TeX Gyre Pagella', 'Libre Baskerville', 'Alegreya', 'Source Serif Pro'];
+      ? ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia', 'Jost']
+      : ['Gelasio', 'TeX Gyre Pagella', 'Libre Baskerville', 'Alegreya', 'Source Serif Pro', 'Jost'];
   const template = [
     // appMenu exists only on macOS — including it on Windows throws,
     // which is exactly what kept NEO from ever opening a window there
@@ -1543,6 +1570,10 @@ function buildMenu() {
           ]
         },
         { type: 'separator' },
+        // the next or previous chapter, without opening the pane
+        { label: t('Next Chapter'), accelerator: 'Alt+CmdOrCtrl+Down', click: () => sendToWindow({ type: 'chapterStep', value: 1 }) },
+        { label: t('Previous Chapter'), accelerator: 'Alt+CmdOrCtrl+Up', click: () => sendToWindow({ type: 'chapterStep', value: -1 }) },
+        { type: 'separator' },
         {
           label: t('Page'),
           submenu: [
@@ -1560,8 +1591,9 @@ function buildMenu() {
         },
         {
           label: t('Interface Size'),
-          submenu: [[1, t('Normal')], [1.25, t('Large (125%)')], [1.5, t('Larger (150%)')], [2, t('Largest (200%)')]].map(([z, label]) => ({
-            label,
+          // as far as the page zoom goes: 300%
+          submenu: [1, 1.25, 1.5, 2, 2.5, 3].map((z) => ({
+            label: z === 1 ? t('Normal') : new Intl.NumberFormat(uiLanguage || 'en', { style: 'percent' }).format(z),
             type: 'radio',
             checked: uiZoomState === z,
             click: () => sendToWindow({ type: 'uiZoom', value: z })
