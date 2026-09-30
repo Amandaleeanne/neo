@@ -6289,9 +6289,9 @@ function openStats() {
         </label>
       </div>
       ${hasBook ? `
-      <div class="stats-row">
+      <div class="stats-row stats-goals">
         <label>${t('Sprint')} <input id="st-sprint" type="number" min="50" value="${sprint ? sprint.target : 500}"/> ${t('words')}</label>
-        <button id="st-sprint-btn" class="btn-gold">${sprint && !sprint.done ? t('End sprint') : t('Start sprint')}</button>
+        <button id="st-sprint-btn" class="btn-gold" style="align-self: center;">${sprint && !sprint.done ? t('End sprint') : t('Start sprint')}</button>
       </div>` : ''}
       <div style="text-align:right;margin-top:14px">
         <button class="m-ok btn-gold">${t('Done')}</button>
