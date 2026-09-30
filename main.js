@@ -1681,7 +1681,8 @@ function buildMenu() {
       editMenuState.ours = edit.submenu.items.map((it) => (it.type === 'separator' ? null : it.label));
       watchEditMenu();
       setImmediate(() => hideSystemEditItems('set'));
-      edit.submenu.on('menu-will-show', () => hideSystemEditItems('open'));
+      edit.submenu.on('menu-will-show', () => { describeMenus('Edit menu opening'); hideSystemEditItems('open'); });
+      if (!app.isPackaged) for (const ms of [1000, 8000]) setTimeout(() => describeMenus(`${ms / 1000}s after the menu bar was set`), ms);
     }
   }
 }
@@ -1720,6 +1721,8 @@ function objcRuntime() {
     flag: lib.func('objc_msgSend', 'bool', ['void *', 'void *']),
     str: lib.func('objc_msgSend', 'const char *', ['void *', 'void *']),
     setFlag: lib.func('objc_msgSend', 'void', ['void *', 'void *', 'bool']),
+    selName: lib.func('const char *sel_getName(void *sel)'),
+    actionOf: lib.func('objc_msgSend', 'void *', ['void *', 'void *']),
     observe: lib.func('objc_msgSend', 'void', ['void *', 'void *', 'void *', 'void *', 'void *', 'void *'])
   };
   return objc;
@@ -1779,6 +1782,36 @@ function hideSystemEditItems(why) {
     editMenuState.hiding = false;
   }
 }
+// Diagnostics for `npm start` only: the whole menu bar as AppKit holds it,
+// printed in the Terminal, so we can see where macOS puts its items
+function describeMenus(why) {
+  if (app.isPackaged || process.platform !== 'darwin') return;
+  try {
+    const o = objcRuntime();
+    const S = (name) => o.sel(name);
+    const title = (item) => { const t = o.obj(item, S('title')); return t ? o.str(t, S('UTF8String')) : ''; };
+    const nsApp = o.obj(o.cls('NSApplication'), S('sharedApplication'));
+    const bar = o.obj(nsApp, S('mainMenu'));
+    const lines = [`[menu debug] ${why} — Edit menu should be at ${editMenuState.index}`];
+    const n = o.count(bar, S('numberOfItems'));
+    for (let i = 0; i < n; i++) {
+      const top = o.objAt(bar, S('itemAtIndex:'), i);
+      const sub = o.obj(top, S('submenu'));
+      lines.push(`  ${i}: ${title(top)}${sub ? ` (menu ${addr(sub).toString(16)})` : ''}`);
+      if (!sub || !/edit|bearbeiten|édition|editar|modifica|wijzig|edycja|правка|düzen|editare/i.test(title(top))) continue;
+      const m = o.count(sub, S('numberOfItems'));
+      for (let k = 0; k < m; k++) {
+        const it = o.objAt(sub, S('itemAtIndex:'), k);
+        const sep = o.flag(it, S('isSeparatorItem'));
+        const act = o.actionOf(it, S('action'));
+        lines.push(`      ${k}: ${sep ? '—' : title(it)}${o.flag(it, S('isHidden')) ? ' [hidden]' : ''}${act ? ' ' + o.selName(act) : ''}`);
+      }
+    }
+    console.log(lines.join('\n'));
+  } catch (err) {
+    console.log('[menu debug] failed: ' + (err && err.stack || err));
+  }
+}
 // a tiny Objective-C class whose one method AppKit calls whenever a menu
 // gains or changes an item; it hides foreign items in the Edit menu
 function watchEditMenu() {
@@ -1792,7 +1825,15 @@ function watchEditMenu() {
         if (editMenuState.hiding || !note) return;
         const menu = o.obj(note, S('object'));
         const edit = nativeEditMenu();
-        if (menu && edit && addr(menu) === addr(edit)) hideSystemEditItems('added');
+        if (!app.isPackaged) {
+          const nm = o.obj(note, S('name'));
+          const tt = menu && o.obj(menu, S('title'));
+          console.log(`[menu debug] ${nm ? o.str(nm, S('UTF8String')) : '?'} on "${tt ? o.str(tt, S('UTF8String')) : ''}" (menu ${addr(menu).toString(16)}${menu && edit && addr(menu) === addr(edit) ? ', the Edit menu' : ''})`);
+        }
+        const nmObj = o.obj(note, S('name'));
+        const tracking = nmObj && /BeginTracking/.test(o.str(nmObj, S('UTF8String')) || '');
+        if (tracking) { describeMenus('menu bar clicked'); hideSystemEditItems('tracking'); }
+        else if (menu && edit && addr(menu) === addr(edit)) hideSystemEditItems('added');
       } catch (err) {
         logError('edit menu', err);
       }
@@ -1804,7 +1845,7 @@ function watchEditMenu() {
     } else cls = o.cls('NEOEditMenuWatcher');
     const watcher = o.obj(o.obj(cls, S('alloc')), S('init'));
     const center = o.obj(o.cls('NSNotificationCenter'), S('defaultCenter'));
-    for (const name of ['NSMenuDidAddItemNotification', 'NSMenuDidChangeItemNotification']) {
+    for (const name of ['NSMenuDidAddItemNotification', 'NSMenuDidChangeItemNotification', 'NSMenuDidBeginTrackingNotification']) {
       const nsName = o.objStr(o.cls('NSString'), S('stringWithUTF8String:'), name);
       o.observe(center, S('addObserver:selector:name:object:'), watcher, S('neoMenuChanged:'), nsName, null);
     }
