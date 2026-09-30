@@ -1670,6 +1670,7 @@ function buildMenu() {
     }
   ];
   const menu = Menu.buildFromTemplate(template);
+  editMenuState.edit = null; // the old menu bar is going: forget its Edit menu first
   Menu.setApplicationMenu(menu);
   if (isMac) {
     // macOS adds its items as the menu opens: NEO hears each addition
@@ -1678,11 +1679,10 @@ function buildMenu() {
     if (edit) {
       // NEO's own Edit items in order; null stands for a separator
       editMenuState.index = menu.items.indexOf(edit);
-      editMenuState.ours = edit.submenu.items.map((it) => (it.type === 'separator' ? null : it.label));
+      editMenuState.ours = edit.submenu.items.map((it) => (it.type === 'separator' ? null : menuTitle(it.label)));
       watchEditMenu();
-      setImmediate(() => hideSystemEditItems('set'));
-      edit.submenu.on('menu-will-show', () => { describeMenus('Edit menu opening'); hideSystemEditItems('open'); });
-      if (!app.isPackaged) for (const ms of [1000, 8000]) setTimeout(() => describeMenus(`${ms / 1000}s after the menu bar was set`), ms);
+      setImmediate(hideSystemEditItems);
+      edit.submenu.on('menu-will-show', hideSystemEditItems);
     }
   }
 }
@@ -1727,7 +1727,12 @@ function objcRuntime() {
   };
   return objc;
 }
-const editMenuState = { index: -1, ours: [], watching: false, hiding: false, reported: false, opened: false };
+const editMenuState = { index: -1, ours: [], edit: null, watching: false, hiding: false };
+// macOS drops the & that Electron reads as a keyboard mnemonic ("Find & Replace"
+// arrives as "Find  Replace"), so titles are compared without it
+const menuTitle = (s) => String(s || '').replace(/&/g, '').replace(/\s+/g, ' ').trim();
+// the actions Electron gives the items it builds: never macOS's own
+const ELECTRON_ACTIONS = new Set(['itemSelected:', 'undo:', 'redo:', 'cut:', 'copy:', 'paste:', 'pasteAndMatchStyle:', 'selectAll:']);
 const addr = (p) => (p ? objc.koffi.address(p) : 0n);
 // the Edit menu as AppKit holds it right now
 function nativeEditMenu() {
@@ -1754,62 +1759,29 @@ function hideForeignItems(edit) {
     const sep = o.flag(item, S('isSeparatorItem'));
     const titleObj = sep ? null : o.obj(item, S('title'));
     const title = titleObj ? o.str(titleObj, S('UTF8String')) : '';
-    const mine = j < ours.length && (sep ? ours[j] === null : ours[j] === title);
+    const mine = j < ours.length && (sep ? ours[j] === null : ours[j] === menuTitle(title));
     if (mine) j++;
-    else if (!o.flag(item, S('isHidden'))) o.setFlag(item, S('setHidden:'), true);
-    seen.push((mine ? '' : '[hidden] ') + (sep ? '—' : title));
+    else {
+      // a safety net: whatever happens to titles, an item Electron made
+      // for NEO is never the one hidden
+      const act = sep ? null : o.actionOf(item, S('action'));
+      const electrons = act && ELECTRON_ACTIONS.has(o.selName(act));
+      if (!electrons && !o.flag(item, S('isHidden'))) o.setFlag(item, S('setHidden:'), true);
+    }
+    seen.push((mine ? '' : '[not NEO\'s] ') + (sep ? '—' : title));
   }
   return seen;
 }
-function hideSystemEditItems(why) {
+function hideSystemEditItems() {
   if (process.platform !== 'darwin' || editMenuState.hiding) return;
   editMenuState.hiding = true;
   try {
-    const edit = nativeEditMenu();
-    if (!edit) return;
-    const seen = hideForeignItems(edit);
-    // once per launch, what the menu held: the record if macOS moves again
-    if (!editMenuState.reported && seen.some((x) => x.startsWith('[hidden]'))) {
-      editMenuState.reported = true;
-      logError('edit menu', `hid what macOS added (${why}): ` + seen.join(' | '));
-    } else if (why === 'open' && !editMenuState.opened) {
-      editMenuState.opened = true;
-      logError('edit menu', 'at first open: ' + seen.join(' | '));
-    }
+    const edit = editMenuState.edit || (editMenuState.edit = nativeEditMenu());
+    if (edit) hideForeignItems(edit);
   } catch (err) {
     logError('edit menu', err);
   } finally {
     editMenuState.hiding = false;
-  }
-}
-// Diagnostics for `npm start` only: the whole menu bar as AppKit holds it,
-// printed in the Terminal, so we can see where macOS puts its items
-function describeMenus(why) {
-  if (app.isPackaged || process.platform !== 'darwin') return;
-  try {
-    const o = objcRuntime();
-    const S = (name) => o.sel(name);
-    const title = (item) => { const t = o.obj(item, S('title')); return t ? o.str(t, S('UTF8String')) : ''; };
-    const nsApp = o.obj(o.cls('NSApplication'), S('sharedApplication'));
-    const bar = o.obj(nsApp, S('mainMenu'));
-    const lines = [`[menu debug] ${why} — Edit menu should be at ${editMenuState.index}`];
-    const n = o.count(bar, S('numberOfItems'));
-    for (let i = 0; i < n; i++) {
-      const top = o.objAt(bar, S('itemAtIndex:'), i);
-      const sub = o.obj(top, S('submenu'));
-      lines.push(`  ${i}: ${title(top)}${sub ? ` (menu ${addr(sub).toString(16)})` : ''}`);
-      if (!sub || !/edit|bearbeiten|édition|editar|modifica|wijzig|edycja|правка|düzen|editare/i.test(title(top))) continue;
-      const m = o.count(sub, S('numberOfItems'));
-      for (let k = 0; k < m; k++) {
-        const it = o.objAt(sub, S('itemAtIndex:'), k);
-        const sep = o.flag(it, S('isSeparatorItem'));
-        const act = o.actionOf(it, S('action'));
-        lines.push(`      ${k}: ${sep ? '—' : title(it)}${o.flag(it, S('isHidden')) ? ' [hidden]' : ''}${act ? ' ' + o.selName(act) : ''}`);
-      }
-    }
-    console.log(lines.join('\n'));
-  } catch (err) {
-    console.log('[menu debug] failed: ' + (err && err.stack || err));
   }
 }
 // a tiny Objective-C class whose one method AppKit calls whenever a menu
@@ -1820,20 +1792,15 @@ function watchEditMenu() {
   try {
     const o = objcRuntime();
     const S = (name) => o.sel(name);
+    // AppKit calls this for every menu in the app as items come and go
+    // (mostly while a menu opens): one lookup, and a pass over the Edit
+    // menu only when it's the Edit menu that changed
     const imp = o.koffi.register((_self, _cmd, note) => {
       try {
         if (editMenuState.hiding || !note) return;
         const menu = o.obj(note, S('object'));
-        const edit = nativeEditMenu();
-        if (!app.isPackaged) {
-          const nm = o.obj(note, S('name'));
-          const tt = menu && o.obj(menu, S('title'));
-          console.log(`[menu debug] ${nm ? o.str(nm, S('UTF8String')) : '?'} on "${tt ? o.str(tt, S('UTF8String')) : ''}" (menu ${addr(menu).toString(16)}${menu && edit && addr(menu) === addr(edit) ? ', the Edit menu' : ''})`);
-        }
-        const nmObj = o.obj(note, S('name'));
-        const tracking = nmObj && /BeginTracking/.test(o.str(nmObj, S('UTF8String')) || '');
-        if (tracking) { describeMenus('menu bar clicked'); hideSystemEditItems('tracking'); }
-        else if (menu && edit && addr(menu) === addr(edit)) hideSystemEditItems('added');
+        const edit = editMenuState.edit || (editMenuState.edit = nativeEditMenu());
+        if (menu && edit && addr(menu) === addr(edit)) hideSystemEditItems();
       } catch (err) {
         logError('edit menu', err);
       }
@@ -1845,14 +1812,16 @@ function watchEditMenu() {
     } else cls = o.cls('NEOEditMenuWatcher');
     const watcher = o.obj(o.obj(cls, S('alloc')), S('init'));
     const center = o.obj(o.cls('NSNotificationCenter'), S('defaultCenter'));
-    for (const name of ['NSMenuDidAddItemNotification', 'NSMenuDidChangeItemNotification', 'NSMenuDidBeginTrackingNotification']) {
+    for (const name of ['NSMenuDidAddItemNotification', 'NSMenuDidChangeItemNotification']) {
       const nsName = o.objStr(o.cls('NSString'), S('stringWithUTF8String:'), name);
       o.observe(center, S('addObserver:selector:name:object:'), watcher, S('neoMenuChanged:'), nsName, null);
     }
   } catch (err) {
     logError('edit menu', err);
   }
-}// Manual update check (Help → Check for Update…): a direct GitHub Releases
+}
+
+// Manual update check (Help → Check for Update…): a direct GitHub Releases
 // lookup, separate from the silent auto-updater. Works in dev builds too.
 let lastReleaseUrl = null;
 
