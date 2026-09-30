@@ -3226,16 +3226,24 @@ function sceneBreakDelete(e, body, chId) {
 
 // Read a body's HTML for saving:
 function captureBody(body) {
-  // (a page marks the lines that say who said it, for the screen only)
-  return body.innerHTML.replace(/(<p\b[^>]*?) data-attr=""/g, '$1');
+  // (a page marks the lines that say who said it, and a chapter the speech
+  // after a scene break, for the screen only)
+  return body.innerHTML.replace(/<p\b[^>]*>/g, (tag) => tag.replace(/ data-(?:attr|speech)=""/g, ''));
 }
 
 // A chapter that opens on a line of dialogue sets no drop cap: the dash
-// itself would be the letter enlarged. The class lives on the body, never saved.
+// itself would be the letter enlarged. That line, and one that follows a
+// scene break, keep their indent where prose is set flush, so the speech
+// lines up with the lines that answer it. The marks are never saved.
 const OPENING_DASH = /^\s*[-‐‑‒–—―]/;
 function markDialogueOpening(body) {
   const first = body.querySelector('p:not(.poetry)'); // the drop cap skips poetry paragraphs
   body.classList.toggle('opens-dialogue', !!first && OPENING_DASH.test(first.textContent));
+  for (const p of body.querySelectorAll('p[data-speech]')) if (!p.matches('.scene-break + p')) p.removeAttribute('data-speech');
+  for (const p of body.querySelectorAll('p.scene-break + p')) {
+    const speech = OPENING_DASH.test(p.textContent);
+    if (p.hasAttribute('data-speech') !== speech) p.toggleAttribute('data-speech', speech);
+  }
 }
 
 function syncChapter(body, chId) {
@@ -7521,20 +7529,22 @@ function buildHtml(data, opts = {}) {
   // scene breaks resume ordinary body text
   const prose = (paras, initial) => {
     let first = initial;
+    let afterBreak = false; // a story's line of speech after *** keeps its indent
     return paras.map((p) => {
-      if (p.sceneBreak) return '<p class="brk">***</p>';
-      if (p.poetry) return p.html;
+      if (p.sceneBreak) { afterBreak = initial; return '<p class="brk">***</p>'; }
+      if (p.poetry) { afterBreak = false; return p.html; }
       let html = p.html;
-      if (first) {
+      if (first || afterBreak) {
         const h = document.createElement('div');
         h.innerHTML = html;
         if (h.firstElementChild) {
-          h.firstElementChild.classList.add('first');
+          if (first) h.firstElementChild.classList.add('first');
           if (OPENING_DASH.test(h.textContent)) h.firstElementChild.classList.add('dialogue');
           html = h.innerHTML;
         }
       }
       first = false;
+      afterBreak = false;
       return html;
     }).join('\n');
   };
@@ -7612,6 +7622,7 @@ function buildHtml(data, opts = {}) {
   .chapter .hd, .contents .hd { text-align: center; letter-spacing: 4px; font-variant-caps: all-small-caps; font-variant-numeric: oldstyle-nums; font-size: 17pt; font-weight: normal; color: #555; margin: 54px 0 36px; }
   .chapter p { text-indent: 2em; margin: 0; }
   .chapter .hd + p, .chapter .byline + p, .brk + p, .chapter p.first { text-indent: 0; }
+  .chapter p.dialogue { text-indent: 2em; }
   /* the drop cap the page sets, two lines deep in its own face. An initial
      letter, not a float: it stays inside its word, so the PDF's copy,
      search, and screen readers still find "The" where a float leaves "T"
@@ -7891,7 +7902,11 @@ ${ch.subtitle ? `<p class="sub">${escXml(ch.subtitle)}</p>` : ''}${ch.byline ? `
       if (p.sceneBreak) { first = true; return '<p class="brk">* * *</p>'; }
       const classes = [];
       if (p.poetry) classes.push('poetry');
-      else if (first) classes.push('first');
+      else if (first) {
+        classes.push('first');
+        // speech keeps its indent, in line with the lines that answer it
+        if (OPENING_DASH.test(p.text || '')) classes.push('dialogue');
+      }
       if (p.align === 'center' || p.align === 'right') classes.push(p.align);
       const cls = classes.length ? ` class="${classes.join(' ')}"` : '';
       if (!p.poetry) first = false;
@@ -8004,6 +8019,7 @@ ${navList(toc)}
 h1 { text-align: center; font-weight: normal; letter-spacing: 0.2em; text-transform: uppercase; font-size: 1.2em; margin: 3em 0 2em; }
 p { text-indent: 1.2em; margin: 0; }
 p.first, p.brk + p, p.byline + p { text-indent: 0; }
+p.first.dialogue:not(.center):not(.right) { text-indent: 1.2em; }
 p.center { text-align: center; text-indent: 0; }
 p.right { text-align: right; text-indent: 0; }
 p.brk { text-align: center; text-indent: 0; margin: 2.5em 0; letter-spacing: 0.5em; }
