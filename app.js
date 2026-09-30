@@ -7326,8 +7326,13 @@ function buildMd(data) {
 // inside the file, so the PDF matches the page on any machine; a font the
 // computer has goes by name, with the same fallbacks as the page.
 const exportBodyFont = () => (getComputedStyle(document.documentElement).getPropertyValue('--body-font').trim() || 'Georgia, serif').replace(/[<>{};]/g, '');
+// the drop cap too: its face is the page's, bundled or the computer's
+const exportDropCapFont = () => (getComputedStyle(document.documentElement).getPropertyValue('--dropcap-font').trim() || 'Georgia, serif').replace(/[<>{};]/g, '');
+const firstFamily = (stack) => stack.split(',')[0].trim().replace(/^["']|["']$/g, '');
 async function exportFontFaces(d) {
-  const family = exportBodyFont().split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const family = firstFamily(exportBodyFont());
+  // the drop cap sets one letter, upright and regular
+  const cap = (library.fonts || {}).dropcap === 'none' ? '' : firstFamily(exportDropCapFont());
   const text = d.sections.map((ch) => ch.paras.map((p) => p.html).join('')).join('');
   // (the title is always bold; a dedication, an epigraph, a part's lines
   // and a title's subtitle are set in italic)
@@ -7340,18 +7345,24 @@ async function exportFontFaces(d) {
     try { rules = [...sheet.cssRules]; } catch { continue; }
     for (const r of rules) {
       if (!(r instanceof CSSFontFaceRule)) continue;
-      if (r.style.getPropertyValue('font-family').replace(/["']/g, '').trim() !== family) continue;
+      const name = r.style.getPropertyValue('font-family').replace(/["']/g, '').trim();
       const style = r.style.getPropertyValue('font-style') || 'normal';
       const weight = r.style.getPropertyValue('font-weight') || '400';
-      if (style === 'italic' && !(parseInt(weight, 10) >= 600 ? boldItalic : italic)) continue;
+      const forBody = name === family && !(style === 'italic' && !(parseInt(weight, 10) >= 600 ? boldItalic : italic));
+      const forCap = name === cap && style === 'normal' && parseInt(weight, 10) === 400;
+      if (!forBody && !forCap) continue;
       const src = r.style.getPropertyValue('src').match(/url\(["']?([^"')]+)["']?\)\s*(format\([^)]*\))?/);
       if (!src) continue;
+      // a Russian face keeps its range and its measures, or it would stand
+      // in for the Latin one at the Latin one's size
+      const fit = ['unicode-range', 'size-adjust', 'ascent-override', 'descent-override', 'line-gap-override']
+        .map((k) => r.style.getPropertyValue(k) && ` ${k}: ${r.style.getPropertyValue(k)};`).filter(Boolean).join('');
       try {
         const bytes = new Uint8Array(await (await fetch(new URL(src[1], sheet.href || location.href))).arrayBuffer());
         let bin = '';
         for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
         const ext = src[1].split('.').pop().toLowerCase();
-        css += `@font-face { font-family: '${family}'; src: url(data:font/${ext};base64,${btoa(bin)}) ${src[2] || ''}; font-weight: ${weight}; font-style: ${style}; }\n`;
+        css += `@font-face { font-family: '${name}'; src: url(data:font/${ext};base64,${btoa(bin)}) ${src[2] || ''}; font-weight: ${weight}; font-style: ${style};${fit} }\n`;
       } catch { /* the name still stands, with its fallbacks */ }
     }
   }
@@ -7465,9 +7476,13 @@ function buildHtml(data, opts = {}) {
   .chapter .hd, .contents .hd { text-align: center; letter-spacing: 4px; font-variant-caps: all-small-caps; font-variant-numeric: oldstyle-nums; font-size: 17pt; font-weight: normal; color: #555; margin: 54px 0 36px; }
   .chapter p { text-indent: 2em; margin: 0; }
   .chapter .hd + p, .chapter .byline + p, .brk + p, .chapter p.first { text-indent: 0; }
-  /* an in-flow raised initial: stays inside its word for copy, search,
-     and screen readers, unlike a floated drop cap */
-  ${(library.fonts || {}).dropcap === 'none' ? '' : '.chapter p.first:not(.dialogue)::first-letter { font-size: 1.8em; line-height: 1; }'}
+  /* the drop cap the page sets, two lines deep in its own face. An initial
+     letter, not a float: it stays inside its word, so the PDF's copy,
+     search, and screen readers still find "The" where a float leaves "T"
+     and "he" (a gap much wider than 4px splits the word again). A browser
+     that can't set one gets a raised initial. */
+  ${(library.fonts || {}).dropcap === 'none' ? '' : `.chapter p.first:not(.dialogue)::first-letter { -webkit-initial-letter: 2; initial-letter: 2; padding-right: 4px; font-family: ${exportDropCapFont()}; }
+  @supports not ((initial-letter: 2) or (-webkit-initial-letter: 2)) { .chapter p.first:not(.dialogue)::first-letter { font-size: 1.8em; line-height: 1; padding-right: 0; } }`}
   .brk { text-align: center; text-indent: 0 !important; letter-spacing: 8px; color: #888; margin: 2.5em 0; }
   .chapter p.poetry { text-indent: 0; margin: 0 2.5em; }
   .chapter p:not(.poetry) + p.poetry, .chapter .hd + p.poetry { margin-top: 0.9em; }
