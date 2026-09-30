@@ -209,6 +209,8 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const IS_MAC = navigator.platform.toLowerCase().includes('mac');
 // a touch screen (Pocket): nothing to hover, no right button
 const NO_HOVER = !!(window.matchMedia && window.matchMedia('(hover: none)').matches) || !!window.Capacitor;
+// NEO Pocket (the Android and iOS shell)
+const IS_POCKET = !!window.Capacitor;
 
 // Touch has no right-click: a long press on a book, a shelf name or a chapter
 // heading opens the same menu. Not inside the text itself — there a long
@@ -2158,14 +2160,10 @@ async function openBook(bookId) {
     if (isNew) {
       $('#tp-title').focus();
     } else if (book.lastPosition && book.chapterOrder.includes(book.lastPosition.chapterId)) {
-      // pick up right where you left off
+      // pick up right where you left off — here, or on the other device
       currentChapterId = book.lastPosition.chapterId;
-      const scroll = book.lastPosition.scroll || 0;
-      requestAnimationFrame(() => {
-        $('#paper-scroll').scrollTop = scroll;
-        highlightNav();
-        updateCounters();
-      });
+      const pos = book.lastPosition;
+      requestAnimationFrame(() => resumePosition(pos));
     }
   }
 
@@ -3814,9 +3812,12 @@ document.addEventListener('keydown', (e) => {
 // ⌥⌘↓ / ⌥⌘↑ (Ctrl+Alt on Windows and Linux): next or previous chapter.
 // No menu item carries these any more, so the window catches them itself —
 // first, before the page or the outline can read them as plain arrows.
+// Pocket takes both: a keyboard paired with a phone or an iPad may be a
+// Mac's (⌘ arrives as Meta) or a PC's (Ctrl).
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-  if (!(IS_MAC ? e.metaKey : e.ctrlKey) || !e.altKey || e.shiftKey) return;
+  const cmd = IS_POCKET ? (e.metaKey !== e.ctrlKey) : (IS_MAC ? e.metaKey : e.ctrlKey);
+  if (!cmd || !e.altKey || e.shiftKey) return;
   if ($('#editor-view').hidden || document.querySelector('.modal-backdrop:not([hidden])')) return;
   e.preventDefault();
   e.stopPropagation();
@@ -4411,7 +4412,14 @@ function renderNav() {
       chapterMenu(chId, e.clientX, e.clientY, rowEl);
     });
 
-    if (story) {
+    if (story && IS_POCKET) {
+      // on a phone this pane is for hopping: a tap anywhere on the box
+      // goes there. The note is read here and written in the Outline.
+      const note = document.createElement('div');
+      note.className = 'nav-note nav-note-ro';
+      note.textContent = book.chapterNotes[chId] || '';
+      item.appendChild(note);
+    } else if (story) {
       // outline your whole book from this panel:
       const note = document.createElement('div');
       note.className = 'nav-note';
@@ -4442,6 +4450,14 @@ function renderNav() {
 
     item.onclick = () => {
       switchTab('manuscript');
+      if (IS_POCKET) {
+        // the top of the chapter, and the pane steps aside for the page
+        const sec = document.querySelector(`.chapter[data-id="${chId}"]`);
+        focusChapterStart(chId);
+        if (sec) sec.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+        if ($('#nav-pane').dataset.pinned !== '1') $('#nav-pane').classList.remove('open');
+        return;
+      }
       focusChapter(chId);
     };
     // from the keyboard, the row is the chapter's button (F6 reaches the pane)
@@ -5593,13 +5609,25 @@ async function saveMeta() {
   savedMetaSig = sig;
 }
 
-function flushAllSaves() {
+function flushAllSaves(e) {
   if (!book) return;
-  // remember where you were for next session
-  const pos = { chapterId: currentChapterId, scroll: $('#paper-scroll').scrollTop };
-  const moved = !book.lastPosition || book.lastPosition.chapterId !== pos.chapterId ||
-    Math.abs((book.lastPosition.scroll || 0) - pos.scroll) > 40;
-  book.lastPosition = pos;
+  // remember where you were, for next session and for the other device:
+  // the chapter, the paragraph and the letter (the same place on any
+  // screen) plus the scroll (this screen's). `at` changes only when the
+  // caret does, so a device that merely scrolled never calls the other
+  // one back to an old spot.
+  const prev = book.lastPosition || {};
+  const caret = captureCaret();
+  const spot = caret
+    ? { chapterId: caret.chId, pIdx: caret.pIdx, off: caret.off }
+    : prev.chapterId === currentChapterId ? { chapterId: prev.chapterId, pIdx: prev.pIdx, off: prev.off } : { chapterId: currentChapterId };
+  const scroll = $('#paper-scroll').scrollTop;
+  const newSpot = spot.chapterId !== prev.chapterId || spot.pIdx !== prev.pIdx;
+  const newLetter = newSpot || spot.off !== prev.off;
+  // the regular tick while writing saves a new paragraph; leaving NEO (a
+  // blur, the app going to the background, closing) saves the exact letter
+  const moved = newSpot || (e !== 'tick' && newLetter) || Math.abs((prev.scroll || 0) - scroll) > 40;
+  if (moved) book.lastPosition = { ...spot, scroll, at: newLetter ? Date.now() : (prev.at || Date.now()) };
   for (const chId of book.chapterOrder) {
     if (chapterHTML[chId] !== undefined && chapterHTML[chId] !== savedHTML[chId]) {
       persistChapter(chId);
@@ -5812,6 +5840,21 @@ async function refreshFromDisk() {
       else if (replaced.length) toast(t('Updated from your other device — the text it replaced is in Darlings'), 8000);
       else toast(t('Updated from your other device'));
     }
+
+    // The writer moved on to the other device since last touching this one:
+    // the caret goes where they left off there. (Its chapter's words may
+    // still be crossing over; the spot waits a little for its paragraph.)
+    const there = meta.lastPosition;
+    const here = book.lastPosition || {};
+    if (there && typeof there.at === 'number' && there.at > (here.at || 0) && there.at > lastHereActivity &&
+        currentTab === 'manuscript' && !document.querySelector('.modal-backdrop:not([hidden])') &&
+        book.chapterOrder.includes(there.chapterId)) {
+      const body = document.querySelector(`.chapter[data-id="${there.chapterId}"] .chapter-body`);
+      const arrived = body && (typeof there.pIdx !== 'number' || body.querySelectorAll('p').length > there.pIdx);
+      if ((arrived || Date.now() - there.at > 120000) && resumePosition(there)) {
+        book.lastPosition = { ...there, scroll: $('#paper-scroll').scrollTop };
+      }
+    }
   } catch (err) {
     console.error(err);
   } finally {
@@ -5830,7 +5873,7 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('beforeunload', flushAllSaves);
 // flush whenever focus leaves NEO, and every 20 seconds
 window.addEventListener('blur', () => { if (book) flushAllSaves(); });
-setInterval(() => { if (book) flushAllSaves(); }, 20000);
+setInterval(() => { if (book) flushAllSaves('tick'); }, 20000);
 
 async function backToShelf() {
   flushAllSaves();
@@ -5917,6 +5960,44 @@ function restoreCaret(caret) {
   sel.addRange(r);
   finish();
 }
+
+// Back where the writer left off, on this device or the other one: the caret
+// at its letter, a third of the way down the window. A position from an
+// older NEO (the scroll alone) gets the scroll.
+function resumePosition(pos) {
+  if (!book || !pos || !book.chapterOrder.includes(pos.chapterId)) return false;
+  const body = document.querySelector(`.chapter[data-id="${pos.chapterId}"] .chapter-body`);
+  if (!body) return false;
+  const sc = $('#paper-scroll');
+  if (typeof pos.pIdx !== 'number' || !body.isContentEditable) {
+    currentChapterId = pos.chapterId;
+    sc.scrollTop = pos.scroll || 0;
+  } else {
+    restoreCaret({ chId: pos.chapterId, pIdx: pos.pIdx, off: pos.off || 0 });
+    const sel = window.getSelection();
+    if (sel.rangeCount) {
+      const r = sel.getRangeAt(0).cloneRange();
+      let rect = r.getBoundingClientRect();
+      if (!rect.height) {
+        const node = r.startContainer.nodeType === Node.ELEMENT_NODE ? r.startContainer : r.startContainer.parentElement;
+        if (node) rect = node.getBoundingClientRect();
+      }
+      sc.scrollTop += rect.top - sc.getBoundingClientRect().top - sc.clientHeight / 3;
+    }
+  }
+  highlightNav();
+  updateCounters();
+  return true;
+}
+
+// When this device last did something to the page: a key, or a tap or click
+// in the manuscript. A newer spot from the other device moves the caret only
+// if it is newer than that (a scroll or a glance doesn't count).
+let lastHereActivity = 0;
+document.addEventListener('keydown', () => { lastHereActivity = Date.now(); }, true);
+document.addEventListener('pointerdown', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#chapters')) lastHereActivity = Date.now();
+}, true);
 
 // The engine's undo history must never replay against a document NEO has
 // rearranged by hand — clear it whenever such a rearrangement happens.
