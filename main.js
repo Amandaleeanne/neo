@@ -258,8 +258,9 @@ ipcMain.handle('library:write', (_e, data) => {
 ipcMain.handle('book:create', (_e, meta) => {
   ensureLibrary();
   // folders carry a slug of the title when it's known at creation (imports),
-  // so the library reads like a bookshelf in Finder too
-  const slug = String(meta.title || '').toLowerCase()
+  // so the library reads like a bookshelf in Finder too. Accents come off
+  // first, so "Capítulo" reads "capitulo", not "cap-tulo"
+  const slug = String(meta.title || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
   const id = 'book-' + (slug ? slug + '-' : '') +
     Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
