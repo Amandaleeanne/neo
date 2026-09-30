@@ -6165,6 +6165,10 @@ async function spellScanEl(el, key) {
   const re = /[\p{L}\p{M}'’]+(?:-[\p{L}\p{M}'’]+)*/gu;
   const piece = /[\p{L}\p{M}'’]+/gu;
   const legal = (raw) => /^[\p{Lu}'’]+$/u.test(raw); // acronyms and shouting are legal
+  // a stammer (E-eu, N-não, Wh-what): each short piece starts the next, and
+  // only the word it lands on is judged
+  const bare = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  const stammers = (bits) => bits.length > 1 && bits.slice(0, -1).every((s, i) => s.length <= 3 && bare(bits[i + 1]).startsWith(bare(s)));
   let n;
   while ((n = walker.nextNode())) {
     const p = n.parentElement;
@@ -6172,16 +6176,18 @@ async function spellScanEl(el, key) {
     let m;
     re.lastIndex = 0;
     while ((m = re.exec(n.data))) {
+      const stammer = stammers(m[0].split('-'));
       const parts = [];
       piece.lastIndex = 0;
       let q;
       while ((q = piece.exec(m[0]))) {
         const word = spellNorm(q[0]);
         if (word.length < 2 || legal(q[0])) continue;
+        if (stammer && q.index + q[0].length < m[0].length) continue;
         parts.push({ start: m.index + q.index, end: m.index + q.index + q[0].length, word });
       }
       if (!parts.length) continue;
-      const whole = m[0].includes('-') && !legal(m[0].replace(/-/g, '')) ? spellNorm(m[0]) : null;
+      const whole = m[0].includes('-') && !stammer && !legal(m[0].replace(/-/g, '')) ? spellNorm(m[0]) : null;
       occurrences.push({ node: n, start: m.index, end: m.index + m[0].length, whole, parts });
     }
   }
@@ -6293,8 +6299,18 @@ document.addEventListener('contextmenu', async (e) => {
   while (a > 0 && isW(text[a - 1])) a--;
   while (b < text.length && isW(text[b])) b++;
   if (a === b) return;
-  const word = spellNorm(text.slice(a, b));
-  if (spellCache.get(word) !== false) return; // only flagged words get our menu
+  let word = spellNorm(text.slice(a, b));
+  if (spellCache.get(word) !== false) {
+    // …or a hyphenated word underlined whole: every piece is a word, the
+    // whole isn't (see spellScanEl)
+    let wa = a, wb = b;
+    while (text[wa - 1] === '-' && isW(text[wa - 2] || '')) { wa--; while (wa > 0 && isW(text[wa - 1])) wa--; }
+    while (text[wb] === '-' && isW(text[wb + 1] || '')) { wb++; while (wb < text.length && isW(text[wb])) wb++; }
+    const whole = spellNorm(text.slice(wa, wb));
+    if (whole === word || spellCache.get(whole) !== false) return; // only flagged words get our menu
+    if (text.slice(wa, wb).split('-').some((w) => spellCache.get(spellNorm(w)) === false)) return;
+    a = wa; b = wb; word = whole;
+  }
   e.preventDefault();
   const chEl = editor.closest ? editor.closest('.chapter') : null;
   const key = editor.id === 'aux-editor'
