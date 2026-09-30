@@ -1472,10 +1472,9 @@ function buildMenu() {
       ]
     },
     {
-      // On a Mac the zero-width space keeps macOS from recognizing this as
-      // "the Edit menu" and slipping Writing Tools and AutoFill into it.
-      // No generative-AI tools in NEO — not now, not later. It reads "Edit".
-      label: t('Edit') + (isMac ? '\u200B' : ''),
+      // macOS slips Writing Tools and AutoFill into this menu on its own;
+      // stripSystemEditItems() takes them back out (see below)
+      label: t('Edit'),
       submenu: [
         // standard items carry their own labels, so they follow NEO's language
         { role: 'undo', label: t('Undo') }, { role: 'redo', label: t('Redo') },
@@ -1670,7 +1669,71 @@ function buildMenu() {
       ]
     }
   ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+  if (isMac) {
+    // macOS adds its items when the menu bar is set and again as a menu
+    // opens, so they come out at both moments
+    const edit = menu.items.find((it) => it.submenu && it.label === t('Edit'));
+    const lastLabel = edit && edit.submenu.items[edit.submenu.items.length - 1].label;
+    if (edit && lastLabel) {
+      const strip = () => stripSystemEditItems(menu.items.indexOf(edit), lastLabel);
+      setImmediate(strip);
+      setTimeout(strip, 500);
+      edit.submenu.on('menu-will-show', strip);
+    }
+  }
+}
+
+// No generative-AI tools in NEO — not now, not later.
+//
+// macOS inserts "Writing Tools" (Apple Intelligence) and "AutoFill" into
+// any app's Edit menu, and Electron has no switch for either. So NEO
+// reaches the real menu through the Objective-C runtime (koffi, a small
+// FFI library) and removes everything after its own last Edit item —
+// whatever macOS appended, in any language. Should anything here fail, the
+// menu is simply left as macOS made it: this never stops NEO from working.
+let objc = null;
+function objcRuntime() {
+  if (objc) return objc;
+  const koffi = require('koffi');
+  const lib = koffi.load('/usr/lib/libobjc.A.dylib');
+  objc = {
+    cls: lib.func('void *objc_getClass(const char *name)'),
+    sel: lib.func('void *sel_registerName(const char *name)'),
+    // objc_msgSend, typed once per shape it is called with
+    obj: lib.func('objc_msgSend', 'void *', ['void *', 'void *']),
+    objAt: lib.func('objc_msgSend', 'void *', ['void *', 'void *', 'long']),
+    count: lib.func('objc_msgSend', 'long', ['void *', 'void *']),
+    str: lib.func('objc_msgSend', 'const char *', ['void *', 'void *']),
+    removeAt: lib.func('objc_msgSend', 'void', ['void *', 'void *', 'long'])
+  };
+  return objc;
+}
+function stripSystemEditItems(editIndex, lastLabel) {
+  if (process.platform !== 'darwin') return;
+  try {
+    const o = objcRuntime();
+    const S = (name) => o.sel(name);
+    const app = o.obj(o.cls('NSApplication'), S('sharedApplication'));
+    const bar = app && o.obj(app, S('mainMenu'));
+    if (!bar || editIndex < 0 || editIndex >= o.count(bar, S('numberOfItems'))) return;
+    const editItem = o.objAt(bar, S('itemAtIndex:'), editIndex);
+    const edit = editItem && o.obj(editItem, S('submenu'));
+    if (!edit) return;
+    const titleAt = (i) => {
+      const item = o.objAt(edit, S('itemAtIndex:'), i);
+      const title = item && o.obj(item, S('title'));
+      return title ? o.str(title, S('UTF8String')) : '';
+    };
+    const n = o.count(edit, S('numberOfItems'));
+    let last = -1;
+    for (let i = 0; i < n; i++) if (titleAt(i) === lastLabel) last = i;
+    if (last < 0) return; // not the menu we built: leave it alone
+    for (let i = n - 1; i > last; i--) o.removeAt(edit, S('removeItemAtIndex:'), i);
+  } catch (err) {
+    logError('edit menu', err);
+  }
 }
 
 // Manual update check (Help → Check for Update…): a direct GitHub Releases

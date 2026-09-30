@@ -1,7 +1,7 @@
 {
   "name": "neo",
   "productName": "NEO",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A word processor for authors. Distraction-free by default.",
   "homepage": "https://github.com/hughhowey/neo",
   "main": "main.js",
@@ -112,7 +112,9 @@
       "!.github/**",
       "!scripts/**",
       "!licenses/**",
-      "!locales/_template.json"
+      "!locales/_template.json",
+      "!node_modules/koffi/build/koffi/{freebsd,linux,musl,openbsd,win32}_*/**",
+      "!node_modules/koffi/{src,vendor,doc}/**"
     ]
   },
   "author": "Hugh Howey",
@@ -136,7 +138,8 @@
     "dictionary-ro": "3.0.0",
     "dictionary-ru": "^3.0.0",
     "electron-updater": "^6.3.9",
-    "jszip": "^3.10.1"
+    "jszip": "^3.10.1",
+    "koffi": "2.16.3"
   },
   "allowScripts": {
     "electron@33.4.11": true
