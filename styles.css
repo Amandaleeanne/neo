@@ -797,6 +797,9 @@ body.night .chapter-body.blank::before { color: #5f5b52; }
   min-height: 50vh;
 }
 #aux-editor:empty::before { content: var(--ph-write-freely, 'Write freely…'); color: #b9b4a8; font-style: italic; }
+/* vim keys: while moving, the caret becomes a gold block, as in vim, so a
+   writer can see at a glance whether a letter will move or type */
+body.vim-nav .chapter-body, body.vim-nav #aux-editor { caret-color: var(--accent); caret-shape: block; }
 
 /* --- Structured outline tab --- */
 .ol-line {
