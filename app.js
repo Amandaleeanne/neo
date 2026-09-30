@@ -2230,6 +2230,7 @@ function renderChapters() {
     body.spellcheck = false; // NEO runs its own spellcheck pass
     if (!story) body.classList.add('no-cap');
     body.innerHTML = chapterHTML[chId] || '<p><br></p>';
+    markDialogueOpening(body);
     if (PAGE_PROMPTS[kind]) {
       body.dataset.ph = PAGE_PROMPTS[kind]();
       const blank = () => body.classList.toggle('blank', !body.textContent.trim());
@@ -2350,6 +2351,7 @@ function wireChapterBody(body, chId) {
 
   body.addEventListener('input', () => {
     breakRun = 0; // fresh typing: ⌘Z belongs to the engine again
+    markDialogueOpening(body);
     chapterHTML[chId] = captureBody(body);
     wordCache[chId] = null;
     scheduleChapterSave(chId);
@@ -3158,7 +3160,16 @@ function captureBody(body) {
   return body.innerHTML.replace(/(<p\b[^>]*?) data-attr=""/g, '$1');
 }
 
+// A chapter that opens on a line of dialogue sets no drop cap: the dash
+// itself would be the letter enlarged. The class lives on the body, never saved.
+const OPENING_DASH = /^\s*[-‐‑‒–—―]/;
+function markDialogueOpening(body) {
+  const first = body.querySelector('p:not(.poetry)'); // the drop cap skips poetry paragraphs
+  body.classList.toggle('opens-dialogue', !!first && OPENING_DASH.test(first.textContent));
+}
+
 function syncChapter(body, chId) {
+  markDialogueOpening(body);
   chapterHTML[chId] = captureBody(body);
   wordCache[chId] = null;
   scheduleChapterSave(chId);
@@ -6891,6 +6902,7 @@ function buildHtml(data, opts = {}) {
         h.innerHTML = html;
         if (h.firstElementChild) {
           h.firstElementChild.classList.add('first');
+          if (OPENING_DASH.test(h.textContent)) h.firstElementChild.classList.add('dialogue');
           html = h.innerHTML;
         }
       }
@@ -6974,7 +6986,7 @@ function buildHtml(data, opts = {}) {
   .chapter .hd + p, .chapter .byline + p, .brk + p, .chapter p.first { text-indent: 0; }
   /* an in-flow raised initial: stays inside its word for copy, search,
      and screen readers, unlike a floated drop cap */
-  ${(library.fonts || {}).dropcap === 'none' ? '' : '.chapter p.first::first-letter { font-size: 1.8em; line-height: 1; }'}
+  ${(library.fonts || {}).dropcap === 'none' ? '' : '.chapter p.first:not(.dialogue)::first-letter { font-size: 1.8em; line-height: 1; }'}
   .brk { text-align: center; text-indent: 0 !important; letter-spacing: 8px; color: #888; margin: 2.5em 0; }
   .chapter p.poetry { text-indent: 0; margin: 0 2.5em; }
   .chapter p:not(.poetry) + p.poetry, .chapter .hd + p.poetry { margin-top: 0.9em; }
