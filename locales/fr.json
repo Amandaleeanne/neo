@@ -562,5 +562,10 @@
   "Title": "Titre",
   "Words written over the last 30 days": "Mots écrits ces 30 derniers jours",
   "Interface Size": "Taille de l’interface",
-  "Normal": "Normale"
+  "Normal": "Normale",
+  "Italic, bold, the Markdown way": "Italique, gras, à la manière Markdown",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Autour d’un mot, tapé ou collé. Annuler juste après garde les astérisques. Format → Emphase Markdown la désactive.",
+  "Markdown Emphasis": "Emphase Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Emphase Markdown activée : *italique*, **gras**",
+  "Markdown emphasis off: asterisks stay asterisks": "Emphase Markdown désactivée : les astérisques restent des astérisques"
 }

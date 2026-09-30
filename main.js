@@ -1544,6 +1544,15 @@ function buildMenu() {
           type: 'checkbox',
           checked: poetryState,
           click: () => sendToWindow({ type: 'poetry' })
+        },
+        { type: 'separator' },
+        // *italic* and **bold** as you type or paste; off for writers who
+        // keep literal asterisks
+        {
+          label: t('Markdown Emphasis'),
+          type: 'checkbox',
+          checked: !readJSON(LIBRARY_FILE, {}).markdownOff,
+          click: (item) => sendToWindow({ type: 'markdownEmphasis', checked: item.checked })
         }
       ]
     },

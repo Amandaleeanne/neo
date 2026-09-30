@@ -560,5 +560,10 @@
   "Title": "Título",
   "Words written over the last 30 days": "Palavras escritas nos últimos 30 dias",
   "Interface Size": "Tamanho da interface",
-  "Normal": "Normal"
+  "Normal": "Normal",
+  "Italic, bold, the Markdown way": "Itálico, negrito, no estilo Markdown",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Em volta de uma palavra, digitado ou colado. Desfazer logo depois mantém os asteriscos. Formatar → Ênfase Markdown desativa.",
+  "Markdown Emphasis": "Ênfase Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Ênfase Markdown ativada: *itálico*, **negrito**",
+  "Markdown emphasis off: asterisks stay asterisks": "Ênfase Markdown desativada: asteriscos continuam asteriscos"
 }

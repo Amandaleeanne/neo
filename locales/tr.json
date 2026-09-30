@@ -511,5 +511,10 @@
   "Each title starts again at Chapter 1": "Her başlık yeniden 1. Bölüm'den başlar",
   "Chapters are numbered straight through": "Bölümler kesintisiz numaralandırılır",
   "A part page goes in before “{title}”.": "“{title}” öncesine bir kısım sayfası eklenir.",
-  "{name}: {n} words": "{name}: {n} kelime"
+  "{name}: {n} words": "{name}: {n} kelime",
+  "Italic, bold, the Markdown way": "İtalik, kalın, Markdown usulü",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Bir kelimenin iki yanına yazılır (ya da yapıştırılır). Hemen ardından geri almak yıldızları korur. Biçim → Markdown Vurgusu bunu kapatır.",
+  "Markdown Emphasis": "Markdown Vurgusu",
+  "Markdown emphasis on: *italic*, **bold**": "Markdown vurgusu açık: *italik*, **kalın**",
+  "Markdown emphasis off: asterisks stay asterisks": "Markdown vurgusu kapalı: yıldızlar yıldız olarak kalır"
 }

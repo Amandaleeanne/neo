@@ -592,5 +592,10 @@
   "Title": "Tytuł",
   "Words written over the last 30 days": "Słowa napisane w ostatnich 30 dniach",
   "Interface Size": "Rozmiar interfejsu",
-  "Normal": "Normalny"
+  "Normal": "Normalny",
+  "Italic, bold, the Markdown way": "Kursywa, pogrubienie, w stylu Markdown",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Wokół słowa, wpisane lub wklejone. Cofnięcie tuż po zachowuje gwiazdki. Format → Wyróżnienia Markdown wyłącza tę funkcję.",
+  "Markdown Emphasis": "Wyróżnienia Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Wyróżnienia Markdown włączone: *kursywa*, **pogrubienie**",
+  "Markdown emphasis off: asterisks stay asterisks": "Wyróżnienia Markdown wyłączone: gwiazdki zostają gwiazdkami"
 }

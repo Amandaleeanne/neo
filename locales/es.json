@@ -561,5 +561,10 @@
   "Title": "Título",
   "Words written over the last 30 days": "Palabras escritas en los últimos 30 días",
   "Interface Size": "Tamaño de la interfaz",
-  "Normal": "Normal"
+  "Normal": "Normal",
+  "Italic, bold, the Markdown way": "Cursiva, negrita, al estilo Markdown",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Alrededor de una palabra, escrito o pegado. Deshacer justo después conserva los asteriscos. Formato → Énfasis Markdown lo desactiva.",
+  "Markdown Emphasis": "Énfasis Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Énfasis Markdown activado: *cursiva*, **negrita**",
+  "Markdown emphasis off: asterisks stay asterisks": "Énfasis Markdown desactivado: los asteriscos se quedan como asteriscos"
 }

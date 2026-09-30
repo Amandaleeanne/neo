@@ -589,5 +589,10 @@
   "Zoom": "Scară",
   "Zoom in": "Mărește",
   "Zoom out": "Micșorează",
-  "Zoom the page": "Mărește sau micșorează pagina"
+  "Zoom the page": "Mărește sau micșorează pagina",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Tastat în jurul unui cuvânt (sau lipit). Anularea imediată păstrează asteriscurile. Format → Evidențiere Markdown o dezactivează.",
+  "Italic, bold, the Markdown way": "Cursiv, aldin, în stil Markdown",
+  "Markdown Emphasis": "Evidențiere Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Evidențiere Markdown activată: *cursiv*, **aldin**",
+  "Markdown emphasis off: asterisks stay asterisks": "Evidențiere Markdown dezactivată: asteriscurile rămân asteriscuri"
 }

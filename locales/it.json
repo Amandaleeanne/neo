@@ -560,5 +560,10 @@
   "Title": "Titolo",
   "Words written over the last 30 days": "Parole scritte negli ultimi 30 giorni",
   "Interface Size": "Dimensione dell’interfaccia",
-  "Normal": "Normale"
+  "Normal": "Normale",
+  "Italic, bold, the Markdown way": "Corsivo, grassetto, alla maniera di Markdown",
+  "Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.": "Intorno a una parola, digitato o incollato. Annullare subito dopo mantiene gli asterischi. Formato → Enfasi Markdown la disattiva.",
+  "Markdown Emphasis": "Enfasi Markdown",
+  "Markdown emphasis on: *italic*, **bold**": "Enfasi Markdown attiva: *corsivo*, **grassetto**",
+  "Markdown emphasis off: asterisks stay asterisks": "Enfasi Markdown disattivata: gli asterischi restano asterischi"
 }
