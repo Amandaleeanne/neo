@@ -3476,6 +3476,18 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ⌥⌘↓ / ⌥⌘↑ (Ctrl+Alt on Windows and Linux): next or previous chapter.
+// No menu item carries these any more, so the window catches them itself —
+// first, before the page or the outline can read them as plain arrows.
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  if (!(IS_MAC ? e.metaKey : e.ctrlKey) || !e.altKey || e.shiftKey) return;
+  if ($('#editor-view').hidden || document.querySelector('.modal-backdrop:not([hidden])')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  gotoChapter(e.key === 'ArrowDown' ? 1 : -1);
+}, true);
+
 // Escape also exits regular fullscreen from the bookshelf
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !$('#editor-view').hidden) return;
@@ -6547,29 +6559,20 @@ function shortcutSections() {
       [KDA, tk('Move selected text to Darlings')]
     ] },
     { title: tk('Formatting'), rows: [
-      [K('⌘B', 'Ctrl+B'), tk('Bold')],
-      [K('⌘I', 'Ctrl+I'), tk('Italic')],
       [K('⌘⇧L', 'Ctrl+Shift+L'), tk('Align paragraph left')],
       [K('⌘⇧C', 'Ctrl+Shift+C'), tk('Center paragraph')],
       [K('⌘⇧R', 'Ctrl+Shift+R'), tk('Align paragraph right')],
       [K('⌘⇧J', 'Ctrl+Shift+J'), tk('Justify paragraph')],
       [K('⌘+', 'Ctrl++'), tk('Larger text')],
       [K('⌘−', 'Ctrl+−'), tk('Smaller text')],
-      [K('⌘0', 'Ctrl+0'), tk('Reset text size and page zoom')],
-      [K(tk('⌃Scroll'), tk('Ctrl+Scroll')), tk('Zoom the page')]
+      [K('⌘0', 'Ctrl+0'), tk('Reset text size and page zoom')]
     ] },
     { title: tk('Outline'), rows: [
       ['Tab', tk('Turn a chapter into a section'), tk('Only empty chapters after the first chapter.')],
       [K('⇧Tab', 'Shift+Tab'), tk('Turn a section into a chapter')]
     ] },
     { title: tk('Editing'), rows: [
-      [KZ, tk('Undo'), tk('Also undoes recent chapter changes, Darlings moves and Replace All.')],
-      [K('⌘⇧Z', /win/i.test(navigator.platform) ? 'Ctrl+Y' : 'Ctrl+Shift+Z'), tk('Redo')],
-      [K('⌘X', 'Ctrl+X'), tk('Cut')],
-      [K('⌘C', 'Ctrl+C'), tk('Copy')],
-      [K('⌘V', 'Ctrl+V'), tk('Paste')],
       [K('⌘⌥⇧V', 'Ctrl+Shift+V'), tk('Paste and match style')],
-      [K('⌘A', 'Ctrl+A'), tk('Select all')],
       [K('⌘F', 'Ctrl+F'), tk('Find and replace')],
       [K('⌘;', 'Ctrl+;'), tk('Toggle spellcheck pass')]
     ] },
@@ -6585,14 +6588,11 @@ function shortcutSections() {
       [K('⌘⇧O', 'Ctrl+Shift+O'), tk('Cycle focus mode'), tk('Off → paragraph → sentence → off.')],
       [K('⌥⌘↓', 'Ctrl+Alt+↓'), tk('Go to the next chapter')],
       [K('⌥⌘↑', 'Ctrl+Alt+↑'), tk('Go to the previous chapter')],
-      [K('⌘M', 'Ctrl+M'), tk('Minimize window')],
-      [K('⌘W', 'Ctrl+W'), tk('Close window')],
       [['F6', K('⌃Tab', 'Ctrl+Tab')], tk('Move between the page, the chapters, the notes and the bottom bar'), tk('Add Shift to go back. Esc returns to the page. On the shelf: the books, then the header.')],
       ...(IS_MAC ? [
         ['⌘H', tk('Hide NEO')],
         ['⌘⌥H', tk('Hide other apps')]
-      ] : []),
-      ...(!/win/i.test(navigator.platform) ? [[K('⌘Q', 'Ctrl+Q'), tk('Quit NEO')]] : [])
+      ] : [])
     ] }
   ];
 }
@@ -7809,16 +7809,7 @@ function updateDialogShow(state, info = {}) {
   later.hidden = false;
   ok.hidden = false;
   bar.hidden = true;
-  if (state === 'offer') {
-    text.textContent = t('You have {version}.', { version: info.currentVersion });
-    ok.textContent = t('Download');
-    ok.onclick = () => { updateDialogShow('starting'); window.neo.downloadUpdate(); };
-  } else if (state === 'starting') {
-    text.textContent = t('Downloading…');
-    bar.hidden = false;
-    fill.style.width = '0%';
-    ok.hidden = true;
-  } else if (state === 'downloading') {
+  if (state === 'downloading') {
     const pct = Math.max(0, Math.min(100, info.percent || 0));
     text.textContent = info.total
       ? t('Downloading… {done} of {total} MB', { done: mb(info.transferred || 0), total: mb(info.total) })
@@ -7850,10 +7841,13 @@ async function checkForUpdate() {
   // of the screen was too easy to miss
   if (res.error) { updateNotice(t('Couldn’t check for updates — try again later')); return; }
   if (!res.hasUpdate) { updateNotice(t('NEO is up to date'), t('You have {version}.', { version: res.currentVersion })); return; }
+  // NEO has been fetching it in the background since it was found: show
+  // where that download is — usually done, with "Restart to update"
   updateDialog = updateDialogBox(res);
   if (!res.canInstall) updateDialogShow('release', res);
   else if (res.ready) updateDialogShow('ready', res);
-  else updateDialogShow('offer', res);
+  else if (res.state === 'error') updateDialogShow('error', res);
+  else updateDialogShow('downloading', res);
 }
 
 function updateNotice(title, line) {
@@ -7879,18 +7873,9 @@ function updateNotice(title, line) {
 }
 
 // messages from the updater in the main process
+// (the download itself is silent: they only matter while the window is open)
 function updateMessage(msg) {
-  if (msg.state === 'available') {
-    // the quiet startup look: one line, once per version
-    if (updateDialog) return;
-    try {
-      if (localStorage.getItem('neo-update-hinted') === msg.version) return;
-      localStorage.setItem('neo-update-hinted', msg.version);
-    } catch { /* fine */ }
-    toast(t('NEO {version} is available — Help → Check for Update… installs it', { version: msg.version }), 7000);
-    return;
-  }
-  if (!updateDialog) return; // nothing open to report to
+  if (!updateDialog || !updateDialog.querySelector('.up-bar')) return; // nothing open to report to
   updateDialogShow(msg.state, msg);
 }
 

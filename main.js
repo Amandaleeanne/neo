@@ -1180,11 +1180,12 @@ function createWindow() {
   win.on('move', remember);
   win.on('close', remember);
 
-  // Right-click on text: Cut, Copy, Paste, Select All. On a Mac, macOS adds
-  // Look Up, Writing Tools and Services on its own when the menu knows where
-  // the selection sits (the frame). NEO's own right-click menus (shelves,
-  // covers, chapter headings, flagged words) cancel the event first, so this
-  // never comes up over them.
+  // Right-click on text: Cut, Copy, Paste, Select All — and nothing else.
+  // Handing macOS the frame (where the selection sits) is what invites it to
+  // add Writing Tools, and NEO carries no generative-AI tools, ever, so the
+  // frame stays out. NEO's own right-click menus (shelves, covers, chapter
+  // headings, flagged words) cancel the event first, so this never comes up
+  // over them.
   win.webContents.on('context-menu', (_e, params) => {
     if (!params.isEditable && !params.selectionText) return;
     const can = params.editFlags || {};
@@ -1193,7 +1194,7 @@ function createWindow() {
     items.push({ role: 'copy', label: t('Copy'), enabled: !!can.canCopy });
     if (params.isEditable) items.push({ role: 'paste', label: t('Paste'), enabled: !!can.canPaste });
     items.push({ type: 'separator' }, { role: 'selectAll', label: t('Select All') });
-    Menu.buildFromTemplate(items).popup({ window: win, frame: params.frame });
+    Menu.buildFromTemplate(items).popup({ window: win });
   });
 
   // NEO does its own spellchecking (see spell:* handlers) — the engine's
@@ -1457,7 +1458,10 @@ function buildMenu() {
       ]
     },
     {
-      label: t('Edit'),
+      // On a Mac the zero-width space keeps macOS from recognizing this as
+      // "the Edit menu" and slipping Writing Tools and AutoFill into it.
+      // No generative-AI tools in NEO — not now, not later. It reads "Edit".
+      label: t('Edit') + (isMac ? '\u200B' : ''),
       submenu: [
         // standard items carry their own labels, so they follow NEO's language
         { role: 'undo', label: t('Undo') }, { role: 'redo', label: t('Redo') },
@@ -1570,10 +1574,6 @@ function buildMenu() {
           ]
         },
         { type: 'separator' },
-        // the next or previous chapter, without opening the pane
-        { label: t('Next Chapter'), accelerator: 'Alt+CmdOrCtrl+Down', click: () => sendToWindow({ type: 'chapterStep', value: 1 }) },
-        { label: t('Previous Chapter'), accelerator: 'Alt+CmdOrCtrl+Up', click: () => sendToWindow({ type: 'chapterStep', value: -1 }) },
-        { type: 'separator' },
         {
           label: t('Page'),
           submenu: [
@@ -1662,35 +1662,64 @@ function compareVersions(a, b) {
 // newer Chromium ignores attribute changes on text it has already looked at
 ipcMain.handle('app:version', () => app.getVersion());
 
-// Help → Check for Update…
+// Updating
 //
-// Packaged builds update themselves: electron-updater reads the release's
-// latest*.yml, downloads the installer in the background (progress goes to
-// the window), and "Restart to update" swaps the app in. The page saves
-// itself before asking for the restart. A build that can't self-update —
-// `npm start`, the Windows portable .exe, anything unsigned — falls back
-// to the release page on GitHub, as before.
+// Packaged builds keep themselves current without being asked: a few seconds
+// after launch (and every few hours after that) NEO looks at the latest
+// GitHub release, and if it's newer, electron-updater starts downloading it
+// straight away, quietly. The new version goes in the next time NEO quits
+// and opens again. Help → Check for Update… shows where that stands — most
+// often it's already downloaded, and the window offers "Restart to update"
+// (the page saves itself first). A build that can't self-update — `npm
+// start`, the Windows portable .exe, anything unsigned — falls back to the
+// release page on GitHub, as before.
 let updater = null;          // electron-updater's autoUpdater, wired once
 let updaterReady = false;    // an update is downloaded and waiting
+// where the background download stands, so the window can pick it up mid-way
+const upd = { state: 'idle', version: '', percent: 0, transferred: 0, total: 0, message: '' };
 function getUpdater() {
   if (updater || !app.isPackaged) return updater;
   const { autoUpdater } = require('electron-updater');
   autoUpdater.logger = null;
-  autoUpdater.autoDownload = false;      // the writer says when
+  autoUpdater.autoDownload = true;       // found it? fetch it — nobody should have to ask
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('update-available', (info) => {
+    Object.assign(upd, { state: 'downloading', version: info && info.version || '', percent: 0, transferred: 0, total: 0, message: '' });
+    sendToWindow({ type: 'update', ...upd });
+  });
   autoUpdater.on('download-progress', (p) => {
-    sendToWindow({ type: 'update', state: 'downloading', percent: p.percent, transferred: p.transferred, total: p.total });
+    Object.assign(upd, { state: 'downloading', percent: p.percent, transferred: p.transferred, total: p.total });
+    sendToWindow({ type: 'update', ...upd });
   });
   autoUpdater.on('update-downloaded', (info) => {
     updaterReady = true;
-    sendToWindow({ type: 'update', state: 'ready', version: info && info.version });
+    Object.assign(upd, { state: 'ready', percent: 100 });
+    if (info && info.version) upd.version = info.version;
+    sendToWindow({ type: 'update', ...upd });
   });
   autoUpdater.on('error', (err) => {
     logError('updater', err);
-    sendToWindow({ type: 'update', state: 'error', message: String(err && err.message || err) });
+    if (updaterReady) return; // a failed later look doesn't undo a finished download
+    Object.assign(upd, { state: 'error', message: String(err && err.message || err) });
+    sendToWindow({ type: 'update', ...upd });
   });
   updater = autoUpdater;
   return updater;
+}
+
+// one look at GitHub; if something newer is there, the download starts on
+// its own (autoDownload). Never twice at once, and not again once it's here.
+let updateLook = null;
+function lookForUpdate() {
+  const u = getUpdater();
+  if (!u) return Promise.resolve(null);
+  if (updaterReady || upd.state === 'downloading') return Promise.resolve(null);
+  if (!updateLook) {
+    updateLook = u.checkForUpdates()
+      .catch((err) => { logError('updater', err); throw err; })
+      .finally(() => { updateLook = null; });
+  }
+  return updateLook;
 }
 
 // what's on GitHub, for the fallback path and the release link
@@ -1709,11 +1738,19 @@ ipcMain.handle('update:check', async () => {
   try {
     const u = getUpdater();
     if (u) {
-      const result = await u.checkForUpdates();
-      const latestVersion = result && result.updateInfo && result.updateInfo.version || '';
-      const hasUpdate = !!latestVersion && compareVersions(latestVersion, currentVersion) > 0;
+      // already on its way (or already here): just say where it is
+      if (!updaterReady && upd.state !== 'downloading') {
+        if (upd.state === 'error') upd.state = 'idle'; // asking again is a retry
+        const result = await lookForUpdate();
+        const v = result && result.updateInfo && result.updateInfo.version || '';
+        if (v && compareVersions(v, currentVersion) > 0 && upd.state === 'idle') {
+          Object.assign(upd, { state: 'downloading', version: v });
+        }
+      }
       latestReleaseFromGitHub().catch(() => {}); // the release link, for the fallback button
-      return { hasUpdate, latestVersion, currentVersion, canInstall: true, ready: updaterReady };
+      const latestVersion = upd.version;
+      const hasUpdate = !!latestVersion && compareVersions(latestVersion, currentVersion) > 0;
+      return { ...upd, hasUpdate, latestVersion, currentVersion, canInstall: true, ready: updaterReady };
     }
   } catch (err) {
     logError('update', err); // fall through to the plain check
@@ -1729,20 +1766,6 @@ ipcMain.handle('update:check', async () => {
   } catch (err) {
     logError('update', err);
     return { error: true };
-  }
-});
-
-ipcMain.handle('update:download', async () => {
-  const u = getUpdater();
-  if (!u) return false;
-  if (updaterReady) { sendToWindow({ type: 'update', state: 'ready' }); return true; }
-  try {
-    await u.downloadUpdate();
-    return true;
-  } catch (err) {
-    logError('updater', err);
-    sendToWindow({ type: 'update', state: 'error', message: String(err && err.message || err) });
-    return false;
   }
 });
 
@@ -1774,23 +1797,17 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-// A quiet look at startup: nothing downloads, nothing pops up; if a newer
-// NEO exists the window shows one line, once, pointing at Help → Check for
-// Update…. Any failure is logged and swallowed, so an offline machine or an
-// unsigned build never notices.
+// The background look: a few seconds after launch, then every four hours
+// for a writer who leaves NEO open for days. Nothing pops up; any failure is
+// logged and swallowed, so an offline machine or an unsigned build never
+// notices.
+const UPDATE_EVERY = 4 * 60 * 60 * 1000;
 function checkForUpdates() {
   if (!app.isPackaged) return;
-  setTimeout(async () => {
-    try {
-      const u = getUpdater();
-      if (!u) return;
-      const result = await u.checkForUpdates();
-      const v = result && result.updateInfo && result.updateInfo.version || '';
-      if (v && compareVersions(v, app.getVersion()) > 0) sendToWindow({ type: 'update', state: 'available', version: v });
-    } catch (err) {
-      logError('updater', err);
-    }
-  }, 8000);
+  const look = () => { lookForUpdate().catch(() => { /* logged in lookForUpdate */ }); };
+  setTimeout(look, 8000);
+  const timer = setInterval(look, UPDATE_EVERY);
+  if (timer.unref) timer.unref();
 }
 
 app.whenReady().then(() => {
@@ -1832,6 +1849,8 @@ app.whenReady().then(() => {
         // these two official switches remove the ones writers can't use here
         systemPreferences.setUserDefault('NSDisabledDictationMenuItem', 'boolean', true);
         systemPreferences.setUserDefault('NSDisabledCharacterPaletteMenuItem', 'boolean', true);
+        // AutoFill (contacts, passwords) has no business on a manuscript page
+        systemPreferences.setUserDefault('NSAutoFillHeuristicControllerEnabled', 'boolean', false);
         // …and "Enter Full Screen" into the View menu, next to NEO's own
         // Full Screen item (⇧⌘F): one is enough
         systemPreferences.setUserDefault('NSFullScreenMenuItemEverywhere', 'boolean', false);
