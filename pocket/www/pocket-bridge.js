@@ -376,6 +376,27 @@
     });
   }
 
+  // Android: whatever shows around the page (the camera cutout band on a
+  // Samsung, the status bar when a swipe peeks it) takes the page's own
+  // color — night, paper or light — instead of the phone's white
+  if (!isIOS()) {
+    let bars = null;
+    try { bars = window.Capacitor.registerPlugin('NeoBars'); } catch { /* older shell */ }
+    const tellBars = () => {
+      if (!bars) return;
+      const bg = (el) => getComputedStyle(el).backgroundColor;
+      let c = bg(document.body);
+      if (!c || c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c)) c = bg(document.documentElement);
+      bars.set({ color: c }).catch(() => { /* an older APK without the plugin */ });
+    };
+    document.addEventListener('DOMContentLoaded', () => {
+      tellBars();
+      // after a theme change, once any color transition has settled
+      new MutationObserver(() => { tellBars(); setTimeout(tellBars, 450); })
+        .observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    });
+  }
+
   // The keyboard's height becomes a CSS variable, and Pocket's own bar and
   // panes sit above it (pocket.css). iOS is told nothing about resizing;
   // its own attempts left a black band behind when the keyboard went away.

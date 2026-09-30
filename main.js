@@ -1204,7 +1204,8 @@ function createWindow() {
 }
 
 // ---------------------------------------------------------------------------
-// Spellcheck: NEO's own bundled Hunspell dictionaries via nspell, identical
+// Spellcheck: NEO's own bundled Hunspell dictionaries, checked by Hunspell
+// itself (WebAssembly, in spell-worker.js), identical
 // on every platform. The renderer paints the squiggles and asks for
 // suggestions. Edit → Spellcheck Language picks the dictionary; the choice
 // lives in library.json so it travels with the writer's books.
@@ -1221,12 +1222,13 @@ const SPELL_LANGUAGES = {
   'de': { label: 'Deutsch', pkg: 'dictionary-de' },
   'nl': { label: 'Nederlands', pkg: 'dictionary-nl' },
   'pl': { label: 'Polski', pkg: 'dictionary-pl' },
+  'pt-BR': { label: 'Português (Brasil)', pkg: 'dictionary-pt' },
   'ro': { label: 'Română', pkg: 'dictionary-ro' },
   'ru': { label: 'Русский', pkg: 'dictionary-ru' }
 };
 
-// The dictionary work runs in a helper process (spell-worker.js): parsing
-// French takes seconds, and the writing room must never wait for it.
+// The dictionary work runs in a helper process (spell-worker.js), so the
+// writing room never waits for a dictionary to load.
 let spellChild = null;
 let spellSeq = 0;
 const spellWaiting = new Map();
@@ -1287,6 +1289,9 @@ function chosenSpellLanguage() {
 function defaultSpellLanguage() {
   const ui = String(uiLanguage || 'en');
   if (SPELL_LANGUAGES[ui]) return ui;
+  // NEO's Portuguese interface is Brazilian; the dictionary is too. The
+  // European interface (pt-PT) leaves the choice to the writer.
+  if (ui === 'pt' || ui === 'pt-BR') return 'pt-BR';
   const base = ui.split('-')[0];
   return SPELL_LANGUAGES[base] ? base : 'en-US';
 }
@@ -1344,6 +1349,14 @@ ipcMain.on('typewriter:state', (_e, on) => {
   on = !!on;
   if (on === typewriterState) return;
   typewriterState = on;
+  try { buildMenu(); } catch (err) { logError('menu', err); }
+});
+// View → Vim Keys shows whether they're on
+let vimState = false;
+ipcMain.on('vim:state', (_e, on) => {
+  on = !!on;
+  if (on === vimState) return;
+  vimState = on;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
 // View → Interface Size shows its choice
@@ -1582,6 +1595,12 @@ function buildMenu() {
             { label: t('Paragraph'), type: 'radio', checked: viewState.focus === 'paragraph', click: () => sendToWindow({ type: 'focus', value: 'paragraph' }) },
             { label: t('Off'), type: 'radio', checked: viewState.focus === 'off', click: () => sendToWindow({ type: 'focus', value: 'off' }) }
           ]
+        },
+        {
+          label: t('Vim Keys'),
+          type: 'checkbox',
+          checked: vimState,
+          click: () => sendToWindow({ type: 'vim' })
         },
         { type: 'separator' },
         {

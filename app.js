@@ -53,10 +53,13 @@ const tabName = (kind) => {
 // the faint + between boxes): a page a published book carries, a part, a
 // prologue or an epilogue. book.chapterKinds holds the ones that aren't
 // chapters. Chapters are numbered; parts are numbered on their own; the rest
-// go by their names. Prologues, epilogues and chapters are the story: they
-// count toward the words.
-const CHAPTER_KINDS = ['copyright', 'dedication', 'epigraph', 'contents', 'prologue', 'part', 'chapter', 'epilogue', 'acknowledgments', 'about'];
-const STORY_KINDS = ['chapter', 'prologue', 'epilogue'];
+// go by their names. An unnumbered chapter is a chapter that goes by its
+// title alone and stays out of the count — a run of named chapters before
+// the numbering starts, say. Prologues, epilogues and chapters (numbered or
+// not) are the story: they count toward the words. book.restartNumbering
+// starts the chapter count again at 1 after every part.
+const CHAPTER_KINDS = ['copyright', 'dedication', 'epigraph', 'contents', 'prologue', 'part', 'chapter', 'unnumbered', 'epilogue', 'acknowledgments', 'about'];
+const STORY_KINDS = ['chapter', 'unnumbered', 'prologue', 'epilogue'];
 // what comes after the story, where a new chapter never goes
 const BACK_KINDS = ['epilogue', 'acknowledgments', 'about'];
 function chapterKind(chId, meta = book) {
@@ -81,7 +84,10 @@ function chapterRole(chId, meta = book) {
 function kindCount(chId, kind, meta = book) {
   let n = 0;
   for (const c of meta.chapterOrder) {
-    if (chapterKind(c, meta) === kind) n++;
+    const k = chapterKind(c, meta);
+    if (k === kind) n++;
+    // numbering that restarts with each part
+    else if (kind === 'chapter' && k === 'part' && meta.restartNumbering) n = 0;
     if (c === chId) break;
   }
   return n;
@@ -91,10 +97,22 @@ function chapterName(chId, meta = book) {
   const k = chapterKind(chId, meta);
   if (k === 'chapter') return t('Chapter {n}', { n: chapterNumber(chId, meta) });
   if (k === 'part') return partLabel(kindCount(chId, 'part', meta));
+  // an unnumbered chapter is its title
+  if (k === 'unnumbered') return ((meta.chapterTitles || {})[chId] || '').trim() || t('Untitled');
   return kindName(k);
+}
+// a chapter's heading as the reader sees it: its name, then any title —
+// once, for an unnumbered chapter, whose name is its title
+function chapterHeading(chId, meta = book, sep = ' — ') {
+  const title = ((meta.chapterTitles || {})[chId] || '').trim();
+  const k = chapterKind(chId, meta);
+  if (k === 'unnumbered') return title;
+  if (!title) return chapterName(chId, meta);
+  return library.exportCustomChapterTitles ? title : chapterName(chId, meta) + sep + title;
 }
 function kindName(kind) {
   if (kind === 'chapter') return t('Chapter');
+  if (kind === 'unnumbered') return t('Unnumbered Chapter');
   if (kind === 'contents') return t('Contents');
   return pageKindName(kind);
 }
@@ -106,8 +124,21 @@ function chapterMark(chId, meta = book) {
   if (k === 'part') return roman(kindCount(chId, 'part', meta));
   return '❦';
 }
-// how many numbered chapters the book has
-const numberedChapters = (meta = book) => meta.chapterOrder.filter((c) => chapterKind(c, meta) === 'chapter').length;
+// how many numbered chapters the book has — or, when numbering restarts
+// with each part, how many share chId's part
+function numberedChapters(meta = book, chId = null) {
+  let n = 0, total = 0, found = false;
+  for (const c of meta.chapterOrder) {
+    const k = chapterKind(c, meta);
+    if (k === 'part' && meta.restartNumbering && chId) {
+      if (found) break;
+      n = 0;
+    }
+    if (c === chId) found = true;
+    if (k === 'chapter') { n++; total++; }
+  }
+  return chId && meta.restartNumbering ? n : total;
+}
 // A story of one chapter is just "the story": no heading, no number, until a
 // second chapter (or a prologue, an epilogue or a part) joins it. The pages
 // around it don't count.
@@ -2168,6 +2199,7 @@ function renderChapters() {
     if (role) sec.classList.add(role);
     const head = document.createElement('div');
     head.className = 'chapter-head';
+    if (kind === 'unnumbered') head.classList.add('no-number');
     head.id = 'ch-head-' + chId;
     const num = document.createElement('span');
     num.className = 'ch-num';
@@ -2313,9 +2345,37 @@ async function chapterMenu(chId, x = 0, y = 0, from = null) {
     // one contents per book, and never over words: it would hide them
     disabled: k === 'contents' && k !== kind && (otherContents || words > 0)
   }));
+  // any piece of the story can leave on its own — to a beta reader, an
+  // editor, a magazine — in any format the book can
+  if (STORY_KINDS.includes(kind) && words > 0) items.push('-', { label: t('Export Chapter…'), value: 'export' });
+  // one switch for the whole book, where the parts are: count chapters
+  // from 1 again after each part
+  if (kind === 'part') {
+    items.push('-', { label: t('Restart Chapter Numbers at Each Part'), value: 'restart', checked: !!book.restartNumbering });
+  }
   items.push('-', { label: t('Delete'), value: 'delete', danger: true });
   const choice = await popMenu(x, y, items, { title: chapterName(chId), from: from || document.querySelector(`.nav-item[data-id="${chId}"] .n-row`) });
   if (!choice || choice === kind) return null;
+  if (choice === 'export') {
+    const formats = [
+      { label: t('Text (.txt)'), value: 'txt' }, { label: t('Markdown (.md)'), value: 'md' }, { label: t('HTML (.html)'), value: 'html' },
+      // PDF is made by the desktop app; Pocket shares the others
+      ...(window.Capacitor ? [] : [{ label: 'PDF (.pdf)', value: 'pdf' }]),
+      { label: t('Word (.docx)'), value: 'docx' }, { label: t('EPUB (.epub)'), value: 'epub' }
+    ];
+    const fmt = await optionModal(t('Export “{title}”', { title: chapterHeading(chId) || chapterName(chId) }), null, formats);
+    if (fmt) await doExport(fmt, chId);
+    return null;
+  }
+  if (choice === 'restart') {
+    if (book.restartNumbering) delete book.restartNumbering;
+    else book.restartNumbering = true;
+    await saveMeta();
+    renderChapters();
+    if (currentTab === 'outline') renderOutline();
+    updateCounters();
+    return choice;
+  }
   if (choice === 'delete') {
     await deleteChapterToDarlings(chId);
     if (currentTab === 'outline') renderOutline();
@@ -3620,6 +3680,255 @@ window.addEventListener('keydown', (e) => {
   gotoChapter(e.key === 'ArrowDown' ? 1 : -1);
 }, true);
 
+/* ------------------------------------------------------------------ */
+/*  Vim keys (View → Vim Keys, off unless chosen)                      */
+/*                                                                      */
+/*  The small part of vim that writers use to move around a page. Esc   */
+/*  puts the page in moving mode (the caret turns gold); letters then   */
+/*  move instead of type, and i, a, o and friends go back to writing.   */
+/*  Esc while moving stays put, as in vim. Keys with ⌘ or Ctrl keep     */
+/*  their usual jobs, so none of NEO's shortcuts change.                */
+/*                                                                      */
+/*    h j k l   left, down, up, right      w b e   by word              */
+/*    0 ^ $     start / end of the line    ( )     by sentence          */
+/*    { }       by paragraph               gg G    top / end of chapter */
+/*    [[ ]]     previous / next chapter    Ctrl-d Ctrl-u  half a screen */
+/*    i a I A   write here / after / at the start / at the end of line   */
+/*    o O       new paragraph below / above                             */
+/*    v         select: motions stretch it, y copies, d or x cuts       */
+/*    x         delete the letter under the caret                       */
+/*    /         find                     a number first repeats: 3w     */
+/* ------------------------------------------------------------------ */
+let vimEnabled = false;
+let vimNav = false;        // moving, not typing
+let vimVisual = false;     // v: motions stretch the selection
+let vimCount = '';
+let vimPending = '';       // the g of gg, the [ of [[
+function applyVim() {
+  if (!vimEnabled) { vimNav = false; vimVisual = false; }
+  document.body.classList.toggle('vim-nav', vimNav);
+  if (window.neo.vimState) window.neo.vimState(vimEnabled); // the View menu's tick
+}
+function toggleVim() {
+  vimEnabled = !vimEnabled;
+  library.vimKeys = vimEnabled;
+  writeLibrary(library);
+  applyVim();
+  toast(vimEnabled ? t('Vim keys on — Esc to move, i to write') : t('Vim keys off'));
+}
+const vimEditor = (el) => el && el.closest && el.closest('.chapter-body, #aux-editor');
+function vimSetNav(on) {
+  vimNav = on;
+  vimVisual = false;
+  vimCount = '';
+  vimPending = '';
+  if (!on) { const s = window.getSelection(); if (s.rangeCount && !s.isCollapsed) s.collapseToEnd(); }
+  applyVim();
+}
+// the paragraph the caret is in, and the text on either side of it there
+function vimBlock() {
+  const s = window.getSelection();
+  if (!s.rangeCount) return null;
+  let n = s.focusNode;
+  if (n && n.nodeType === Node.TEXT_NODE) n = n.parentElement;
+  const p = n && n.closest && n.closest('p, li, div.chapter-body, #aux-editor');
+  return p || null;
+}
+function vimAround() {
+  const s = window.getSelection();
+  const block = vimBlock();
+  if (!block || !s.rangeCount) return { before: '', after: '' };
+  const r = document.createRange();
+  r.selectNodeContents(block);
+  const b = r.cloneRange();
+  b.setEnd(s.focusNode, s.focusOffset);
+  const a = r.cloneRange();
+  a.setStart(s.focusNode, s.focusOffset);
+  return { before: b.toString(), after: a.toString() };
+}
+const vimClass = (c) => (!c || /\s/.test(c) ? 0 : /[\p{L}\p{M}\p{N}_'’]/u.test(c) ? 1 : 2);
+function vimMove(dir, unit, times = 1) {
+  const s = window.getSelection();
+  for (let i = 0; i < times; i++) s.modify(vimVisual ? 'extend' : 'move', dir, unit);
+}
+// w, b, e as vim counts them: letters, then punctuation, are words; space isn't
+function vimWord(key) {
+  const { before, after } = vimAround();
+  const chars = [...(key === 'b' ? before : after)];
+  let n = 0;
+  if (key === 'w') {
+    const start = vimClass(chars[0]);
+    while (n < chars.length && start && vimClass(chars[n]) === start) n++;
+    while (n < chars.length && vimClass(chars[n]) === 0) n++;
+    if (n >= chars.length) { vimMove('forward', 'paragraphboundary'); vimMove('forward', 'character'); return; }
+  } else if (key === 'e') {
+    n = 1;
+    while (n < chars.length && vimClass(chars[n]) === 0) n++;
+    const cls = vimClass(chars[n]);
+    while (n + 1 < chars.length && vimClass(chars[n + 1]) === cls) n++;
+    if (n >= chars.length) { vimMove('forward', 'paragraphboundary'); return; }
+  } else {
+    chars.reverse();
+    while (n < chars.length && vimClass(chars[n]) === 0) n++;
+    const cls = vimClass(chars[n]);
+    while (n < chars.length && cls && vimClass(chars[n]) === cls) n++;
+    if (!chars.length) { vimMove('backward', 'character'); vimMove('backward', 'paragraphboundary'); return; }
+  }
+  vimMove(key === 'b' ? 'backward' : 'forward', 'character', n);
+}
+// a line or paragraph move that can't go further steps into the next chapter
+function vimLine(dir, unit) {
+  const s = window.getSelection();
+  const at = s.rangeCount ? [s.focusNode, s.focusOffset] : null;
+  vimMove(dir, unit);
+  if (vimVisual || !at || s.focusNode !== at[0] || s.focusOffset !== at[1]) return;
+  const ed = vimEditor(document.activeElement);
+  if (!ed || !ed.classList.contains('chapter-body')) return;
+  const order = book.chapterOrder;
+  const i = order.indexOf(currentChapterId) + (dir === 'forward' ? 1 : -1);
+  if (i < 0 || i >= order.length) return;
+  if (dir === 'forward') focusChapterStart(order[i]);
+  else {
+    const nb = document.querySelector(`.chapter[data-id="${order[i]}"] .chapter-body`);
+    if (!nb || !nb.isContentEditable) return;
+    nb.focus({ preventScroll: true });
+    const r = document.createRange();
+    r.selectNodeContents(nb);
+    r.collapse(false);
+    s.removeAllRanges();
+    s.addRange(r);
+    currentChapterId = order[i];
+    highlightNav();
+  }
+  revealCaret();
+}
+// vim's selections take in the letter under the caret, too
+function vimInclusive() {
+  const s = window.getSelection();
+  if (!s.rangeCount || s.isCollapsed) return;
+  const r = document.createRange();
+  r.setStart(s.anchorNode, s.anchorOffset);
+  r.setEnd(s.focusNode, s.focusOffset);
+  if (!r.collapsed) s.modify('extend', 'forward', 'character'); // anchor first: a forward selection
+}
+function vimHalfPage(dir) {
+  const sc = $('#paper-scroll');
+  if (!sc || currentTab !== 'manuscript') return;
+  const box = sc.getBoundingClientRect();
+  sc.scrollTop += dir * sc.clientHeight / 2;
+  // the caret follows to the same place on the screen
+  const r = document.caretRangeFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  const ed = r && vimEditor(r.startContainer.nodeType === Node.TEXT_NODE ? r.startContainer.parentElement : r.startContainer);
+  if (!ed) return;
+  ed.focus({ preventScroll: true });
+  const s = window.getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+}
+function vimKey(e) {
+  const k = e.key;
+  // counts: 3w, 12j (a 0 on its own is the start of the line)
+  if (/^[0-9]$/.test(k) && (k !== '0' || vimCount)) { vimCount += k; return; }
+  const times = Math.max(1, Math.min(999, parseInt(vimCount || '1', 10)));
+  vimCount = '';
+  const pending = vimPending;
+  vimPending = '';
+  if (pending === 'g') { if (k === 'g') vimMove('backward', 'documentboundary'); revealCaret(); return; }
+  if (pending === '[' || pending === ']') {
+    if (k === pending) gotoChapter(k === ']' ? times : -times);
+    return;
+  }
+  const back = 'backward', fwd = 'forward';
+  switch (k) {
+    case 'h': case 'Backspace': vimMove(back, 'character', times); break;
+    case 'l': case ' ': vimMove(fwd, 'character', times); break;
+    case 'j': case 'Enter': for (let i = 0; i < times; i++) vimLine(fwd, 'line'); break;
+    case 'k': for (let i = 0; i < times; i++) vimLine(back, 'line'); break;
+    case 'w': case 'b': case 'e': for (let i = 0; i < times; i++) vimWord(k); break;
+    case '0': case '^': vimMove(back, 'lineboundary'); break;
+    case '$': vimMove(fwd, 'lineboundary'); break;
+    case '(': vimMove(back, 'sentence', times); break;
+    case ')': vimMove(fwd, 'sentence', times); break;
+    case '{': for (let i = 0; i < times; i++) vimLine(back, 'paragraph'); break;
+    case '}': for (let i = 0; i < times; i++) vimLine(fwd, 'paragraph'); break;
+    case 'G': vimMove(fwd, 'documentboundary'); break;
+    case 'g': case '[': case ']': vimPending = k; return;
+    case 'v': {
+      vimVisual = !vimVisual;
+      if (!vimVisual) window.getSelection().collapseToEnd();
+      break;
+    }
+    case 'y':
+      if (vimVisual) { vimInclusive(); document.execCommand('copy'); vimVisual = false; window.getSelection().collapseToStart(); }
+      break;
+    case 'd': case 'x': case 'Delete':
+      if (vimVisual) { vimInclusive(); document.execCommand('cut'); vimVisual = false; }
+      else if (k !== 'd') for (let i = 0; i < times; i++) document.execCommand('forwardDelete');
+      break;
+    case 'i': vimSetNav(false); break;
+    case 'a': vimSetNav(false); vimMove(fwd, 'character'); break;
+    case 'I': vimSetNav(false); vimMove(back, 'lineboundary'); break;
+    case 'A': vimSetNav(false); vimMove(fwd, 'lineboundary'); break;
+    case 'o': vimSetNav(false); vimMove(fwd, 'paragraphboundary'); document.execCommand('insertParagraph'); break;
+    case 'O':
+      vimSetNav(false);
+      vimMove(back, 'paragraphboundary');
+      document.execCommand('insertParagraph');
+      vimMove(back, 'character');
+      break;
+    case '/': vimSetNav(false); openSearch(); return;
+    default: return;
+  }
+  revealCaret();
+}
+// first in line for keys in the page and the notes, ahead of NEO's own
+// typing rules, and only while vim keys are on
+window.addEventListener('keydown', (e) => {
+  if (!vimEnabled || e.isComposing || e.keyCode === 229) return;
+  const ed = vimEditor(e.target);
+  if (!ed) { if (vimNav) vimSetNav(false); return; }
+  if (document.querySelector('.modal-backdrop:not([hidden])')) return;
+  if (!vimNav) {
+    // Esc while writing: start moving
+    if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      vimSetNav(true);
+    }
+    return;
+  }
+  if (e.key === 'Escape') {
+    // vim hands press Esc out of habit: here it only lets go of a selection
+    // or a half-typed command, and never sends the book back to the shelf
+    e.preventDefault();
+    e.stopPropagation();
+    if (vimVisual) window.getSelection().collapseToEnd();
+    vimVisual = false;
+    vimCount = '';
+    vimPending = '';
+    return;
+  }
+  // Ctrl-d / Ctrl-u move half a screen; other modified keys keep their jobs
+  if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'd' || e.key === 'u')) {
+    e.preventDefault();
+    e.stopPropagation();
+    vimHalfPage(e.key === 'd' ? 1 : -1);
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  // arrows, Home, End, Page Up and Down still move as they always do
+  if (e.key.length > 1 && e.key !== 'Enter' && e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (ed.classList.contains('chapter-body')) typewriterByKeyboard = true; // typewriter scrolling follows
+  vimKey(e);
+}, true);
+// a click into the page, or the window losing focus, leaves the mode as it was;
+// leaving the page for a title or the notes' own fields lets it go
+document.addEventListener('focusin', (e) => {
+  if (vimNav && !vimEditor(e.target)) vimSetNav(false);
+});
+
 // Escape also exits regular fullscreen from the bookshelf
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !$('#editor-view').hidden) return;
@@ -4055,12 +4364,11 @@ function bookContents(meta = book) {
     if (kind === 'part') inPart = true;
     else if (BACK_KINDS.includes(kind)) inPart = false;
     if (['copyright', 'dedication', 'epigraph', 'contents'].includes(kind) || chId === solo) continue;
-    let label = chapterName(chId, meta);
-    const title = STORY_KINDS.includes(kind) ? ((meta.chapterTitles || {})[chId] || '') : '';
+    let label = STORY_KINDS.includes(kind) ? chapterHeading(chId, meta) || chapterName(chId, meta) : chapterName(chId, meta);
     if (kind === 'part') {
       const partTitle = partTitleOf(chId);
       if (partTitle) label += ': ' + partTitle;
-    } else if (title) label = library.exportCustomChapterTitles && kind === 'chapter' ? title : label + ' — ' + title;
+    }
     out.push({ chId, label, type: kind === 'part' ? 'part' : STORY_KINDS.includes(kind) ? 'chapter' : 'page', level: inPart && kind !== 'part' ? 1 : 0 });
   }
   return out;
@@ -4984,7 +5292,7 @@ function updateCounters() {
       ? '' // a chapterless story needs no chapter locator
       : chapterKind(cur) !== 'chapter'
         ? chapterName(cur)
-        : t('chapter {ch} of {total}', { ch: chapterNumber(cur), total: numberedChapters() });
+        : t('chapter {ch} of {total}', { ch: chapterNumber(cur), total: numberedChapters(book, cur) });
   // cache for the bookshelf progress bar
   if (book.wordCount !== total) {
     // only a true crossing earns a painting — a story that was already long
@@ -5851,8 +6159,12 @@ async function spellScanEl(el, key) {
   const occurrences = [];
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   // letters of any alphabet, with their accents, so French and German
-  // words reach the dictionary whole
-  const re = /[\p{L}\p{M}'’]+/gu;
+  // words reach the dictionary whole — hyphenated ones too (e-mail,
+  // well-known, fazê-lo, dir-se-ia): the dictionary judges the whole word,
+  // and only when it says no are the pieces underlined one by one
+  const re = /[\p{L}\p{M}'’]+(?:-[\p{L}\p{M}'’]+)*/gu;
+  const piece = /[\p{L}\p{M}'’]+/gu;
+  const legal = (raw) => /^[\p{Lu}'’]+$/u.test(raw); // acronyms and shouting are legal
   let n;
   while ((n = walker.nextNode())) {
     const p = n.parentElement;
@@ -5860,27 +6172,45 @@ async function spellScanEl(el, key) {
     let m;
     re.lastIndex = 0;
     while ((m = re.exec(n.data))) {
-      const word = spellNorm(m[0]);
-      if (word.length < 2) continue;
-      if (/^[\p{Lu}'’]+$/u.test(m[0])) continue; // acronyms and shouting are legal
-      occurrences.push({ node: n, start: m.index, end: m.index + m[0].length, word });
+      const parts = [];
+      piece.lastIndex = 0;
+      let q;
+      while ((q = piece.exec(m[0]))) {
+        const word = spellNorm(q[0]);
+        if (word.length < 2 || legal(q[0])) continue;
+        parts.push({ start: m.index + q.index, end: m.index + q.index + q[0].length, word });
+      }
+      if (!parts.length) continue;
+      const whole = m[0].includes('-') && !legal(m[0].replace(/-/g, '')) ? spellNorm(m[0]) : null;
+      occurrences.push({ node: n, start: m.index, end: m.index + m[0].length, whole, parts });
     }
   }
-  const unknown = [...new Set(occurrences.map((o) => o.word))].filter((w) => !spellCache.has(w));
+  const words = new Set();
+  for (const o of occurrences) {
+    if (o.whole) words.add(o.whole);
+    for (const pt of o.parts) words.add(pt.word);
+  }
+  const unknown = [...words].filter((w) => !spellCache.has(w));
   if (unknown.length) {
     const res = await window.neo.spellCheckWords(unknown);
     for (const w of unknown) spellCache.set(w, res[w] !== false);
   }
   if (!spellOn) return; // toggled off while we were checking
   const ranges = [];
-  for (const o of occurrences) {
-    if (spellCache.get(o.word) || !o.node.isConnected) continue;
+  const mark = (node, start, end) => {
     try {
       const r = new Range();
-      r.setStart(o.node, o.start);
-      r.setEnd(o.node, o.end);
+      r.setStart(node, start);
+      r.setEnd(node, end);
       ranges.push(r);
     } catch { /* node changed underneath us */ }
+  };
+  for (const o of occurrences) {
+    if (!o.node.isConnected) continue;
+    if (o.whole && spellCache.get(o.whole)) continue;
+    const wrong = o.parts.filter((pt) => !spellCache.get(pt.word));
+    if (wrong.length) for (const pt of wrong) mark(o.node, pt.start, pt.end);
+    else if (o.whole) mark(o.node, o.start, o.end); // every piece fine, the whole not
   }
   spellRanges.set(key, ranges);
   rebuildSpellHighlight();
@@ -5932,7 +6262,7 @@ function toggleSpellcheck() {
 const SPELL_LANGUAGE_NAMES = {
   'en-US': t('US English'), 'en-GB': t('UK English'), 'en-CA': t('Canadian English'),
   'en-AU': t('Australian English'), fr: t('French'), es: t('Spanish'), de: t('German'),
-  nl: t('Dutch'), pl: t('Polish'), ro: t('Romanian'), ru: t('Russian')
+  nl: t('Dutch'), pl: t('Polish'), 'pt-BR': t('Brazilian Portuguese'), ro: t('Romanian'), ru: t('Russian')
 };
 async function changeSpellLanguage(code) {
   const ok = await window.neo.setSpellLanguage(code);
@@ -6726,7 +7056,24 @@ function shortcutSections() {
         ['⌘H', tk('Hide NEO')],
         ['⌘⌥H', tk('Hide other apps')]
       ] : [])
-    ] }
+    ] },
+    // only for writers who turned them on (View → Vim Keys)
+    ...(vimEnabled ? [{ title: tk('Vim keys'), rows: [
+      ['Esc', tk('Stop writing and move around the page'), tk('i, a or o goes back to writing.')],
+      ['h j k l', tk('Left, down, up, right')],
+      ['w b e', tk('Next word, previous word, end of word')],
+      ['0 $', tk('Start or end of the line')],
+      ['( )', tk('Previous or next sentence')],
+      ['{ }', tk('Previous or next paragraph')],
+      ['gg G', tk('Top or end of the chapter')],
+      ['[[ ]]', tk('Previous or next chapter')],
+      [K('⌃d ⌃u', 'Ctrl+d Ctrl+u'), tk('Down or up half a screen')],
+      ['i a I A', tk('Write here, after, at the start or end of the line')],
+      ['o O', tk('Write in a new paragraph below or above')],
+      ['v', tk('Select'), tk('Move to stretch it, then y to copy or d to cut.')],
+      ['x', tk('Delete the letter under the caret')],
+      ['/', tk('Find')]
+    ] }] : [])
   ];
 }
 
@@ -6877,14 +7224,9 @@ function exportChapters() {
       continue;
     }
     // the story: chapterless stories export as continuous text
-    const chTitle = (book.chapterTitles || {})[chId];
-    const heading = chId === solo
-      ? ''
-      : library.exportCustomChapterTitles && chTitle
-        ? chTitle
-        : chapterName(chId) + (chTitle ? ' — ' + chTitle : '');
+    const heading = chId === solo ? '' : chapterHeading(chId);
     const level = inPart ? 1 : 0;
-    const sec = push({ kind: 'chapter', heading, paras, role: chapterRole(chId) || '', level });
+    const sec = push({ kind: 'chapter', heading, paras, role: chapterRole(chId) || '', level, chId });
     toc.push({ label: heading || book.title, num: sec.num, level, type: 'chapter' });
   }
   if (contentsAt >= 0) sections.forEach((sec, i) => { sec.front = i < contentsAt; });
@@ -6917,6 +7259,23 @@ function bookExportData() {
     // chapters too (a book of books lists its titles instead)
     contents,
     contentsChapters: true
+  };
+}
+
+// One chapter, on its own: the book's title page, then that chapter, headed
+// as it is in the book (Chapter 7 — Holston). No cover image in a web page
+// or PDF; an EPUB keeps the book's cover, since e-readers expect one.
+function chapterExportData(chId) {
+  const d = bookExportData();
+  const sec = d.sections.find((s) => s.kind === 'chapter' && s.chId === chId);
+  if (!sec) return null;
+  Object.assign(sec, { num: 1, level: 0, front: false });
+  return {
+    ...d,
+    sections: [sec],
+    toc: [{ label: sec.heading || d.title, num: 1, level: 0, type: 'chapter' }],
+    contents: false,
+    chapterOnly: sec.heading || chapterName(chId)
   };
 }
 
@@ -7652,6 +8011,7 @@ async function shelfBookData(shelf, opts = {}) {
     for (const c of chapters) {
       if (c.kind === 'part') {
         titleParts += 1;
+        if (m.restartNumbering) n = 0; // this title numbers its chapters part by part
         const titled = !!(c.paras[0] && !c.paras[0].sceneBreak && !isAttribution(c.paras[0]));
         const partTitle = titled ? c.paras[0].text : '';
         const s = push({ kind: 'part', heading: partLabel(titleParts), partTitle, level: chLevel, paras: titled ? c.paras.slice(1) : c.paras });
@@ -7663,9 +8023,12 @@ async function shelfBookData(shelf, opts = {}) {
       if (role === 'epilogue') underPart = false;
       const chTitle = (m.chapterTitles || {})[c.chId];
       let heading;
-      if (role) heading = role === 'prologue' ? t('Prologue') : t('Epilogue');
-      else { n += 1; heading = t('Chapter {n}', { n }); }
-      if (chTitle) heading = library.exportCustomChapterTitles ? chTitle : heading + ' — ' + chTitle;
+      if (c.kind === 'unnumbered') heading = chTitle || '';
+      else {
+        if (role) heading = role === 'prologue' ? t('Prologue') : t('Epilogue');
+        else { n += 1; heading = t('Chapter {n}', { n }); }
+        if (chTitle) heading = library.exportCustomChapterTitles ? chTitle : heading + ' — ' + chTitle;
+      }
       const lv = underPart ? chLevel + 1 : chLevel;
       const s = push({ kind: 'chapter', heading, level: lv, paras: c.paras, role: role || '' });
       toc.push({ label: heading, num: s.num, level: lv, type: 'chapter' });
@@ -7809,19 +8172,23 @@ function plainError(err) {
   return String((err && err.message) || err).replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, '');
 }
 
-async function doExport(format) {
+// the whole book, or with chId just that chapter
+async function doExport(format, chId = null) {
   if (!book) { toast(t('Open a book first')); return; }
   flushAllSaves();
-  const defaultName = safeName(book.title);
+  const one = chId ? chapterExportData(chId) : null;
+  if (chId && !one) return;
+  const data = one || undefined;
+  const defaultName = safeName(book.title) + (one ? '-' + safeName(one.chapterOnly) : '');
   try {
     let payload;
-    if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries() };
-    else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries() };
-    else if (format === 'txt') payload = { format, defaultName, content: buildTxt() };
-    else if (format === 'md') payload = { format, defaultName, content: buildMd() };
+    if (format === 'docx') payload = { format, defaultName, zipEntries: buildDocxEntries(data) };
+    else if (format === 'epub') payload = { format, defaultName, zipEntries: await buildEpubEntries(data) };
+    else if (format === 'txt') payload = { format, defaultName, content: buildTxt(data) };
+    else if (format === 'md') payload = { format, defaultName, content: buildMd(data) };
     else {
-      const data = bookExportData();
-      payload = { format, defaultName, content: buildHtml(data, { cover: await exportCover(data), fonts: await exportFontFaces(data) }) };
+      const d = data || bookExportData();
+      payload = { format, defaultName, content: buildHtml(d, { cover: one ? null : await exportCover(d), fonts: await exportFontFaces(d) }) };
     }
     const saved = await window.neo.exportSave(payload);
     if (saved) toast(t('Exported: {file}', { file: saved.split('/').pop() }));
@@ -8072,6 +8439,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'spellLanguage') changeSpellLanguage(msg.value);
   if (msg.type === 'reshelve') reshelveBook();
   if (msg.type === 'typewriter') toggleTypewriter();
+  if (msg.type === 'vim') toggleVim();
   if (msg.type === 'focus') setFocus(msg.value);
   if (msg.type === 'focusCycle') cycleFocus();
   if (msg.type === 'import') importBooks();
@@ -8389,6 +8757,8 @@ loadLibrary().then(() => {
   applyFonts();
   typewriterEnabled = !!library.typewriter;
   applyTypewriter();
+  vimEnabled = !!library.vimKeys;
+  applyVim();
   focusLevel = FOCUS_LEVELS.includes(library.focus) ? library.focus : 'off';
   applyFocus();
 });

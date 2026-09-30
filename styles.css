@@ -659,6 +659,10 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-c
   transition: opacity 0.15s;
 }
 .chapter-head:hover .ch-title:empty::before { opacity: 1; }
+/* an unnumbered chapter goes by its title alone: no number, no dash, and
+   the "add a title" prompt stays in view until it has one */
+.chapter-head.no-number .ch-num, .chapter-head.no-number .ch-sep { display: none; }
+.chapter-head.no-number .ch-title:empty::before { opacity: 1; }
 .chapter-body {
   font-family: var(--body-font);
   font-size: calc(var(--editor-size, 17px) * var(--page-zoom, 1)); line-height: 1.75;
