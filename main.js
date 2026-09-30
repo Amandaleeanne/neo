@@ -1473,7 +1473,7 @@ function buildMenu() {
     },
     {
       // macOS slips Writing Tools and AutoFill into this menu on its own;
-      // stripSystemEditItems() takes them back out (see below)
+      // hideSystemEditItems() hides them again (see below)
       label: t('Edit'),
       submenu: [
         // standard items carry their own labels, so they follow NEO's language
@@ -1672,15 +1672,16 @@ function buildMenu() {
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
   if (isMac) {
-    // macOS adds its items when the menu bar is set and again as a menu
-    // opens, so they come out at both moments
+    // macOS adds its items some time after the menu bar is set, or as the
+    // menu first opens: look a few times, and every time it opens
     const edit = menu.items.find((it) => it.submenu && it.label === t('Edit'));
-    const lastLabel = edit && edit.submenu.items[edit.submenu.items.length - 1].label;
-    if (edit && lastLabel) {
-      const strip = () => stripSystemEditItems(menu.items.indexOf(edit), lastLabel);
-      setImmediate(strip);
-      setTimeout(strip, 500);
-      edit.submenu.on('menu-will-show', strip);
+    if (edit) {
+      // NEO's own Edit items in order; null stands for a separator
+      const ours = edit.submenu.items.map((it) => (it.type === 'separator' ? null : it.label));
+      const hide = () => hideSystemEditItems(menu.items.indexOf(edit), ours);
+      setImmediate(hide);
+      for (const ms of [500, 2000, 6000]) setTimeout(hide, ms);
+      edit.submenu.on('menu-will-show', hide);
     }
   }
 }
@@ -1688,11 +1689,14 @@ function buildMenu() {
 // No generative-AI tools in NEO — not now, not later.
 //
 // macOS inserts "Writing Tools" (Apple Intelligence) and "AutoFill" into
-// any app's Edit menu, and Electron has no switch for either. So NEO
-// reaches the real menu through the Objective-C runtime (koffi, a small
-// FFI library) and removes everything after its own last Edit item —
-// whatever macOS appended, in any language. Should anything here fail, the
-// menu is simply left as macOS made it: this never stops NEO from working.
+// any app's Edit menu, and Electron has no switch for either. Deleting
+// them doesn't last: macOS notices they're gone and puts them back the
+// next time the menu opens. Hiding them does — the items are still
+// there, so macOS leaves them be, and nobody sees them. NEO reaches the
+// real menu through the Objective-C runtime (koffi, a small FFI library),
+// walks it alongside the Edit menu it built, and hides every item that
+// isn't one of its own, in any language. Should anything here fail, the
+// menu is left as macOS made it: this never stops NEO from working.
 let objc = null;
 function objcRuntime() {
   if (objc) return objc;
@@ -1705,12 +1709,14 @@ function objcRuntime() {
     obj: lib.func('objc_msgSend', 'void *', ['void *', 'void *']),
     objAt: lib.func('objc_msgSend', 'void *', ['void *', 'void *', 'long']),
     count: lib.func('objc_msgSend', 'long', ['void *', 'void *']),
+    flag: lib.func('objc_msgSend', 'bool', ['void *', 'void *']),
     str: lib.func('objc_msgSend', 'const char *', ['void *', 'void *']),
-    removeAt: lib.func('objc_msgSend', 'void', ['void *', 'void *', 'long'])
+    setFlag: lib.func('objc_msgSend', 'void', ['void *', 'void *', 'bool'])
   };
   return objc;
 }
-function stripSystemEditItems(editIndex, lastLabel) {
+let editMenuReported = false;
+function hideSystemEditItems(editIndex, ours) {
   if (process.platform !== 'darwin') return;
   try {
     const o = objcRuntime();
@@ -1721,21 +1727,29 @@ function stripSystemEditItems(editIndex, lastLabel) {
     const editItem = o.objAt(bar, S('itemAtIndex:'), editIndex);
     const edit = editItem && o.obj(editItem, S('submenu'));
     if (!edit) return;
-    const titleAt = (i) => {
-      const item = o.objAt(edit, S('itemAtIndex:'), i);
-      const title = item && o.obj(item, S('title'));
-      return title ? o.str(title, S('UTF8String')) : '';
-    };
     const n = o.count(edit, S('numberOfItems'));
-    let last = -1;
-    for (let i = 0; i < n; i++) if (titleAt(i) === lastLabel) last = i;
-    if (last < 0) return; // not the menu we built: leave it alone
-    for (let i = n - 1; i > last; i--) o.removeAt(edit, S('removeItemAtIndex:'), i);
+    const seen = [];
+    let j = 0; // the next of NEO's own items to find, in order
+    for (let i = 0; i < n; i++) {
+      const item = o.objAt(edit, S('itemAtIndex:'), i);
+      if (!item) continue;
+      const sep = o.flag(item, S('isSeparatorItem'));
+      const titleObj = sep ? null : o.obj(item, S('title'));
+      const title = titleObj ? o.str(titleObj, S('UTF8String')) : '';
+      const mine = j < ours.length && (sep ? ours[j] === null : ours[j] === title);
+      if (mine) j++;
+      else if (!o.flag(item, S('isHidden'))) o.setFlag(item, S('setHidden:'), true);
+      seen.push((mine ? '' : '[hidden] ') + (sep ? '—' : title));
+    }
+    // once per launch, what the menu held: the record if macOS moves again
+    if (!editMenuReported && seen.some((x) => x.startsWith('[hidden]'))) {
+      editMenuReported = true;
+      logError('edit menu', 'hid what macOS added: ' + seen.join(' | '));
+    }
   } catch (err) {
     logError('edit menu', err);
   }
 }
-
 // Manual update check (Help → Check for Update…): a direct GitHub Releases
 // lookup, separate from the silent auto-updater. Works in dev builds too.
 let lastReleaseUrl = null;
@@ -1889,17 +1903,22 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-// The background look: a few seconds after launch, then every four hours
-// for a writer who leaves NEO open for days. Nothing pops up; any failure is
-// logged and swallowed, so an offline machine or an unsigned build never
-// notices.
-const UPDATE_EVERY = 4 * 60 * 60 * 1000;
+// The background look: a few seconds after launch, every hour after that
+// for a writer who leaves NEO open for days, and whenever the computer
+// wakes (a laptop lid is how most NEO sessions end and begin). Nothing pops
+// up; any failure is logged and swallowed, so an offline machine or an
+// unsigned build never notices.
+const UPDATE_EVERY = 60 * 60 * 1000;
 function checkForUpdates() {
   if (!app.isPackaged) return;
   const look = () => { lookForUpdate().catch(() => { /* logged in lookForUpdate */ }); };
   setTimeout(look, 8000);
   const timer = setInterval(look, UPDATE_EVERY);
   if (timer.unref) timer.unref();
+  try {
+    // after a wake the network needs a moment
+    require('electron').powerMonitor.on('resume', () => setTimeout(look, 15000));
+  } catch (err) { logError('updater', err); }
 }
 
 app.whenReady().then(() => {
