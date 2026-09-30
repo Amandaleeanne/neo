@@ -2425,19 +2425,22 @@ function wireChapterBody(body, chId) {
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
     const text = e.clipboardData.getData('text/plain');
+    // hyphens set as dialogue dashes, the same as typing them
+    const edges = caretEdges(body);
     if (html) {
-      document.execCommand('insertHTML', false, cleanPasteHtml(html));
+      document.execCommand('insertHTML', false, cleanPasteHtml(html, { style: dashStyle(), ...edges }));
       reconcileMarks();
     } else if (text) {
       const parts = text.replace(/\r/g, '').split(/\n+/).filter((p) => p.trim());
       parts.forEach((p, i) => {
         if (i > 0) document.execCommand('insertParagraph');
+        const line = dialogueDashes(p.trim(), dashStyle(), { start: i > 0 || edges.start, end: i < parts.length - 1 || edges.end, spaced: i === 0 && edges.spaced });
         // plain text written in Markdown keeps its *italics* and **bold**
-        const styled = library && library.markdownOff ? null : markdownInline(p.trim());
+        const styled = library && library.markdownOff ? null : markdownInline(line);
         if (styled) {
           document.execCommand('insertHTML', false, styled);
           stripJunkSpans(body); // the engine wraps inserted HTML in style spans
-        } else document.execCommand('insertText', false, p.trim());
+        } else document.execCommand('insertText', false, line);
       });
     }
   });
@@ -2475,6 +2478,8 @@ function wireChapterBody(body, chId) {
     if (emptyChapterBackspace(e, body, chId)) return;
     if (chapterStartBackspace(e, body, chId)) return;
     if (guardMarkerDelete(e, body, chId)) return;
+    // "Espere -" then Enter: the dash goes in before the paragraph ends
+    if (e.key === 'Enter') dialogueDashKey(e, body);
     if (handleEnter(e, body, chId)) return;
     if (handleTabSpacing(e)) return;
     smartKeys(e, body);
@@ -3283,12 +3288,32 @@ document.addEventListener('selectionchange', () => {
   }
 });
 
+// Does the caret sit at the start or the end of its paragraph, or after a
+// space? What's pasted there opens or ends the paragraph only if so.
+function caretEdges(body) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return { start: true, end: true };
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
+  const block = node && node.closest('p, div, li');
+  if (!block || !body.contains(block)) return { start: true, end: true };
+  const pre = document.createRange();
+  pre.selectNodeContents(block);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const post = document.createRange();
+  post.selectNodeContents(block);
+  post.setStart(range.endContainer, range.endOffset);
+  const before = pre.toString();
+  return { start: !before.trim(), end: !post.toString().trim(), spaced: /\s$/.test(before) };
+}
+
 // Reduce pasted HTML to what a manuscript is made of: paragraphs, bold,
 // italic. Word, Apple Notes, Google Docs and browsers each dress a
 // paragraph differently — <p>, <div>, a line break inside a block, styled
 // spans — so every block boundary and <br> becomes a paragraph break, and
 // styling that only lives in a style attribute is read as bold/italic.
-function cleanPasteHtml(html) {
+// dashes: { style, ...caretEdges } sets dialogue dashes, for the manuscript.
+function cleanPasteHtml(html, dashes) {
   // parsed off to the side: nothing in a clipboard loads or runs
   const holder = new DOMParser().parseFromString(html, 'text/html').body;
   holder.querySelectorAll('script,style,meta,link,img,table,head,title').forEach((n) => n.remove());
@@ -3324,13 +3349,21 @@ function cleanPasteHtml(html) {
       if (text) paras[paras.length - 1].push({ text, b: r.b, i: r.i });
     });
   }
-  const out = paras.map((runs) => {
+  const filled = paras.map((runs) => runs.some((r) => r.mark === undefined && r.text.trim()));
+  const out = paras.map((runs, n) => {
     // whitespace collapses like HTML's, and each paragraph is trimmed
     runs = runs.map((r) => (r.mark !== undefined ? r : { ...r, text: r.text.replace(/\s+/g, ' ') }));
     const first = runs.find((r) => r.mark === undefined);
     if (first) first.text = first.text.replace(/^\s+/, '');
     const last = [...runs].reverse().find((r) => r.mark === undefined);
     if (last) last.text = last.text.replace(/\s+$/, '');
+    if (dashes) {
+      dashRuns(runs, dashes.style, {
+        start: n !== filled.indexOf(true) || dashes.start,
+        end: n !== filled.lastIndexOf(true) || dashes.end,
+        spaced: n === filled.indexOf(true) && dashes.spaced
+      });
+    }
     const inner = runs.map((r) => {
       if (r.mark !== undefined) {
         // placeholder marks travel with their text; reconcileMarks pairs
@@ -3468,10 +3501,56 @@ document.addEventListener('keydown', (e) => {
   document.execCommand('insertText', false, just.key);
 }, true);
 
+// Dialogue dashes as you type (see dialogueDashEdits): a hyphen turns once
+// the key after it shows what it is. The key then goes on as usual, so a
+// quote after the dash still opens or closes. The opening dash is the
+// manuscript's only: Notes and Outline keep their "- " lists.
+let dashJustSet = null; // the dash just set, for ⌘Z
+function dialogueDashKey(e, body) {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.keyCode === 229) return;
+  const key = e.key === 'Enter' ? '' : e.key;
+  if (key.length > 1) return;
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return;
+  const start = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
+  let block = start && start.closest('p, div, li');
+  if (!block || !body.contains(block)) block = body;
+  const pre = document.createRange();
+  pre.setStart(block, 0);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const before = pre.toString();
+  // the hyphen opening the paragraph, or the one just behind the caret
+  let from;
+  if (/^-\s*$/.test(before) && body.matches('.chapter-body')) from = 0;
+  else if (/\s-$/.test(before)) from = before.length - 2;
+  else return;
+  const edit = dialogueDashEdits(before.slice(from) + key, dashStyle(), { start: from === 0, end: !key })[0];
+  if (!edit) return;
+  const at = from + edit.at;
+  selectChars(block, at, at + edit.from.length);
+  document.execCommand('insertText', false, edit.to);
+  if (key) dashJustSet = { block, at, was: edit.from, to: edit.to, key };
+}
+// ⌘Z (Ctrl+Z) right after: the hyphen comes back as typed
+document.addEventListener('keydown', (e) => {
+  const just = dashJustSet;
+  dashJustSet = null;
+  if (!just || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ' || !just.block.isConnected) return;
+  e.preventDefault();
+  e.stopPropagation();
+  selectChars(just.block, just.at, just.at + just.to.length);
+  document.execCommand('insertText', false, just.was);
+  const caret = just.at + just.was.length + just.key.length;
+  selectChars(just.block, caret, caret);
+}, true);
+
 function smartKeys(e, body) {
   // a field can reach smartKeys twice (its own handler and the page-wide
   // one below): the first pass wins
   if (e.defaultPrevented) return;
+  dialogueDashKey(e, body);
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.isComposing || e.keyCode === 229) return;
 
@@ -3596,6 +3675,62 @@ function bookQuotes(el) {
   if (c['»'] > c.own && c['»'] >= c['«']) return { open: '»', close: '«' };
   if (c['«'] > c.own && c['«'] > c['»']) return { open: '«', close: '»' };
   return q;
+}
+
+// A hyphen standing on its own is a dash the keyboard didn't have. At the
+// start of a paragraph it opens speech, spaced the way the language sets
+// dialogue (— Olá, —Hola; elsewhere as typed). After a space, with a space,
+// a closing quote, punctuation or the paragraph's end behind it, it becomes
+// the language's dash and the spaces stay as typed. Hyphens in words
+// (guarda-chuva), suspended ones (pré- e pós-), and those before a digit
+// (-5) or a suffix (-mente) stay hyphens.
+const DIALOGUE_DASHES = {
+  pt: { open: '—', space: ' ', mid: '—' },   // — Olá — diz ela.
+  ru: { open: '—', space: ' ', mid: '—' },
+  es: { open: '—', space: '', mid: '—' },    // —Hola —dijo él—.
+  en: { open: '—', mid: '–' }                // and every other language: word – word
+};
+const DASH_OPEN = /^-(?:(\s+)(?=[^\s-])|(?=[^\s\d-]))/u;
+// (a quote typed right after the hyphen closes whatever comes next)
+const DASH_MID = /(?<=\s)-(?=["'“”‘’«»„]*(?:[\s.,;:!?…)\]]|$)|["'“”‘’«»„]+\uE000)/gu;
+// The changes, as { at, from, to }. start / end: whether the text begins or
+// ends its paragraph (a fragment pasted mid-sentence does neither); spaced:
+// whether a space comes before it.
+function dialogueDashEdits(text, style, { start = true, end = true, spaced = false } = {}) {
+  // a scene break, or a paragraph of nothing but dashes
+  if (start && end && /^[\s*#•~⁂—–-]*$/.test(text)) return [];
+  const edits = [];
+  const open = start && text.match(DASH_OPEN);
+  if (open) edits.push({ at: 0, from: open[0], to: style.open + (style.space !== undefined ? style.space : open[1] || '') });
+  // past the end of a fragment, anything could follow
+  const lead = !start && spaced ? ' ' : '';
+  const probe = lead + text + (end ? '' : '\uE000');
+  for (const m of probe.matchAll(DASH_MID)) edits.push({ at: m.index - lead.length, from: '-', to: style.mid });
+  return edits;
+}
+function dialogueDashes(text, style, edges) {
+  return dialogueDashEdits(text, style, edges).reduceRight(
+    (s, e) => s.slice(0, e.at) + e.to + s.slice(e.at + e.from.length), text);
+}
+// The same across a pasted paragraph's runs of bold and italic: each change
+// lands in the run that holds it
+function dashRuns(runs, style, edges) {
+  const texts = runs.filter((r) => r.mark === undefined);
+  const edits = dialogueDashEdits(texts.map((r) => r.text).join(''), style, edges);
+  for (const e of edits.reverse()) {
+    let pos = 0;
+    for (const r of texts) {
+      if (e.at >= pos && e.at + e.from.length <= pos + r.text.length) {
+        r.text = r.text.slice(0, e.at - pos) + e.to + r.text.slice(e.at - pos + e.from.length);
+        break;
+      }
+      pos += r.text.length;
+    }
+  }
+}
+function dashStyle() {
+  const code = writingLanguage();
+  return DIALOGUE_DASHES[code] || DIALOGUE_DASHES[code.split('-')[0]] || DIALOGUE_DASHES.en;
 }
 
 // French typographic rules apply when the book is spellchecked in French,
@@ -6103,7 +6238,8 @@ async function addImportedBooks(results, shelf) {
       const chId = 'ch-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
       const html = ch.paras.map((p) => {
         if (p.scene) return '<p class="scene-break">***</p>';
-        let text = escHtml(p.text || '');
+        // hyphens set as dialogue dashes, the same as typing them
+        let text = escHtml(dialogueDashes(p.text || '', dashStyle()));
         text = text.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
                    .replace(/\*([^*]+)\*/g, '<i>$1</i>')
                    .replace(/_([^_]+)_/g, '<i>$1</i>');
