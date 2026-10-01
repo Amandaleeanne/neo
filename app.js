@@ -7706,9 +7706,10 @@ function showHelp() {
         <dd>${[keys].flat().map((key) => t(key)).map((key) => `<kbd aria-label="${escHtml(keyName(key))}">${escHtml(key)}</kbd>`).join(`<span class="shortcut-or">${t('or')}</span>`)}</dd>
       </div>`).join('')}</dl></section>`);
   // Keep Writing and Formatting first, with similar amounts of content per column.
+  // Vim keys, there only while they're on, runs across both below them.
   content.innerHTML = [[0, 2, 4, 5], [1, 3]].map((column) => `<div class="shortcuts-column">${
     column.map((index) => sections[index]).join('')
-  }</div>`).join('');
+  }</div>`).join('') + (sections[6] ? `<div class="shortcuts-wide">${sections[6]}</div>` : '');
   const close = () => {
     document.removeEventListener('keydown', handleKeyDown, true);
     bd.remove();
