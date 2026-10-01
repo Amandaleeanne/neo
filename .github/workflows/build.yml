@@ -13,7 +13,29 @@ permissions:
   contents: write
 
 jobs:
+  # The installers are named from package.json, and the updater offers an
+  # update only when latest.yml names a newer version than the one installed.
+  # A tag that disagrees with package.json ships a release that calls itself
+  # the old version, which nobody is ever offered. (v1.2.3 did.) The step
+  # runs on every build and checks only when a tag started it, so the jobs
+  # below can always depend on it.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME would build as version $pkg. Set \"version\" in package.json (and package-lock.json) to $tag, commit, and tag again."
+            exit 1
+          fi
+          echo "Tag $GITHUB_REF_NAME matches package.json ($pkg)."
+
   windows:
+    needs: version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +78,7 @@ jobs:
             dist/*.blockmap
 
   mac:
+    needs: version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +130,7 @@ jobs:
           gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*-mac.zip dist/latest-mac.yml dist/*.blockmap --clobber
 
   linux:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
