@@ -4849,6 +4849,7 @@ async function moveSelectionToDarlings(html, text) {
   const did = 'd-' + Date.now().toString(36);
 
   snapshotStructure('darling');
+  breakRun++; // the engine never saw this cut: ⌘Z inside the text must reach the structural stack
 
   let anchorPrefix = null;
   let anchorSuffix = null;
