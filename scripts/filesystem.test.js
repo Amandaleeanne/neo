@@ -41,7 +41,8 @@ function loadMain() {
     console,
     libraryRoot: os.tmpdir()
   });
-  vm.runInContext(source, context);
+  // The string is the file on disk. filename is how Node attributes coverage to it.
+  vm.runInContext(source, context, { filename: path.join(root, 'main.js') });
   return {
     context,
     call: (name, ...args) => handlers.get(name)(null, ...args),
