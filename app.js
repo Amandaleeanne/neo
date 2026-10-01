@@ -3584,6 +3584,16 @@ document.addEventListener('keydown', (e) => {
   selectChars(just.block, caret, caret);
 }, true);
 
+// Swap the last n typed characters for text. They are selected and typed
+// over, so the new text takes their styling: deleting them first leaves the
+// caret in whatever sits before them, and after an italic word the dash
+// (and everything typed after it) would come out italic.
+function replaceBefore(n, text) {
+  const sel = window.getSelection();
+  for (let i = 0; i < n; i++) sel.modify('extend', 'backward', 'character');
+  document.execCommand('insertText', false, text);
+}
+
 function smartKeys(e, body) {
   // a field can reach smartKeys twice (its own handler and the page-wide
   // one below): the first pass wins
@@ -3606,15 +3616,12 @@ function smartKeys(e, body) {
   if (markdownEmphasis(e, body, range)) return;
   if (e.key === '-' && prevChars(1) === '-') {
     e.preventDefault();
-    document.execCommand('delete');
-    document.execCommand('insertText', false, '—'); // —
+    replaceBefore(1, '—'); // —
     return;
   }
   if (e.key === '.' && prevChars(2) === '..') {
     e.preventDefault();
-    document.execCommand('delete');
-    document.execCommand('delete');
-    document.execCommand('insertText', false, '…'); // …
+    replaceBefore(2, '…'); // …
     return;
   }
   const french = frenchTypography();
