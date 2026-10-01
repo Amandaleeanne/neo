@@ -127,6 +127,7 @@
   "dependencies": {
     "@farscrl/hunspell-wasm": "1.0.1",
     "dictionary-de": "^3.0.0",
+    "dictionary-el": "^4.0.0",
     "dictionary-en-au": "^3.0.0",
     "dictionary-en-ca": "^3.0.0",
     "dictionary-en-gb": "^3.0.0",
