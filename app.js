@@ -2542,6 +2542,38 @@ function focusChapterStart(chId) {
   highlightNav();
 }
 
+// The caret at the last character of a chapter, inside its last paragraph,
+// with the view kept where the writer is — not thrown to the chapter's top
+function focusChapterEnd(chId) {
+  const nb = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  if (!nb) return;
+  if (!nb.isContentEditable) { showEntry(chId); return; }
+  nb.focus({ preventScroll: true });
+  const nr = document.createRange();
+  const paras = nb.querySelectorAll('p');
+  const last = paras[paras.length - 1];
+  if (last) {
+    // the last text node that's really editable (skips placeholders and ghosts)
+    const walk = document.createTreeWalker(last, NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.parentElement && n.parentElement.isContentEditable
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+    });
+    let text = null;
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) text = n;
+    if (text) nr.setStart(text, text.length);
+    else nr.setStart(last, 0); // an empty last line: before its <br>
+  } else {
+    nr.selectNodeContents(nb);
+  }
+  nr.collapse(true);
+  const s = window.getSelection();
+  s.removeAllRanges();
+  s.addRange(nr);
+  currentChapterId = chId;
+  highlightNav();
+  revealCaret();
+}
+
 // Backspace in an empty chapter deletes it:
 function emptyChapterBackspace(e, body, chId) {
   if (e.key !== 'Backspace' || e.metaKey || e.ctrlKey || e.altKey) return false;
@@ -2553,7 +2585,7 @@ function emptyChapterBackspace(e, body, chId) {
   breakRun++;
   if (idx > 0) {
     const prev = book.chapterOrder[idx - 1];
-    deleteChapterQuiet(chId).then(() => { focusChapter(prev); resetNativeUndo(); });
+    deleteChapterQuiet(chId).then(() => { focusChapterEnd(prev); resetNativeUndo(); });
   } else {
     // an empty chapter 1 dissolves too — the caret lands at the top of
     // what just became the new chapter 1
