@@ -3693,7 +3693,8 @@ const QUOTE_STYLES = {
   de: { open: '„', close: '“' },
   pl: { open: '„', close: '”' },
   ro: { open: '„', close: '”' },
-  ru: { open: '«', close: '»' }
+  ru: { open: '«', close: '»' },
+  el: { open: '«', close: '»' }
 };
 function writingLanguage() {
   return (library && library.spellLanguage) || NeoI18n.getLocale();

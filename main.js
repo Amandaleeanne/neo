@@ -848,7 +848,10 @@ const CHAPTER_WORDS = new RegExp('^(' + [
   // ro (prolog, epilog above). A bare "Capitol" only before a number:
   // on its own it is an English word, and "Capitol Hill was quiet." is prose
   'capitol(?=\\s+\\d)', 'capitolul', 'partea',
-  'глава', 'пролог', 'эпилог', 'часть'                             // ru
+  'глава', 'пролог', 'эпилог', 'часть',                            // ru
+  'κεφάλαιο', 'κεφαλαιο', 'πρόλογος', 'προλογος',
+  'επίλογος', 'επιλογος', 'μέρος', 'μερος',
+  'ραψωδία', 'ραψωδια'                                              // el
 ].join('|') + ')(?![\\p{L}\\d])', 'iu');
 
 // A manuscript's own Prologue / Epilogue headings give those chapters their role
@@ -1224,7 +1227,8 @@ const SPELL_LANGUAGES = {
   'pl': { label: 'Polski', pkg: 'dictionary-pl' },
   'pt-BR': { label: 'Português (Brasil)', pkg: 'dictionary-pt' },
   'ro': { label: 'Română', pkg: 'dictionary-ro' },
-  'ru': { label: 'Русский', pkg: 'dictionary-ru' }
+  'ru': { label: 'Русский', pkg: 'dictionary-ru' },
+  'el': { label: 'Ελληνικά', pkg: 'dictionary-el' }
 };
 
 // The dictionary work runs in a helper process (spell-worker.js), so the

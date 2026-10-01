@@ -1465,3 +1465,32 @@ body.light.bright .nav-gap .ng-plus { color: #5f5b53; border-color: #8f897e; }
 body.light.bright .pop-menu button:disabled { color: #77726a; }
 body.light.bright .show-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.3); }
 body.light.bright .show-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.45); }
+
+
+/* ===== Greek typography =====
+   Greek glyph-safe fonts for titles, authors and drop caps.
+   The original NEO display fonts are Latin-only subsets. */
+html[lang^="el"] {
+  --dropcap-font: Georgia, "Times New Roman", serif;
+}
+
+/* Cover author */
+html[lang^="el"] .book .b-author {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Sans / condensed-style covers */
+html[lang^="el"] .book.cv-stack .b-title,
+html[lang^="el"] .book.cv-bebas .b-title,
+html[lang^="el"] .book.cv-band .b-title,
+html[lang^="el"] .book.cv-oswald .b-title {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Serif / literary-style covers */
+html[lang^="el"] .book.cv-black .b-title,
+html[lang^="el"] .book.cv-fat .b-title,
+html[lang^="el"] .book.cv-fat .b-line.b-ital,
+html[lang^="el"] .book.cv-cinzel .b-title {
+  font-family: Georgia, "Times New Roman", serif;
+}
