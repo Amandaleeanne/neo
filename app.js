@@ -4181,8 +4181,25 @@ function vimHalfPage(dir) {
   s.removeAllRanges();
   s.addRange(r);
 }
+// Moving, a key counts by where it sits on the keyboard, named as on a US
+// one, whatever layout is on: on Russian or Greek the key under the right
+// index finger is still j, and Shift+4 is still $. A dead key, and a key an
+// input method takes (Process), count by their place too.
+const VIM_US = {
+  Space: [' ', ' '], Minus: ['-', '_'], Equal: ['=', '+'], BracketLeft: ['[', '{'], BracketRight: [']', '}'],
+  Backslash: ['\\', '|'], Semicolon: [';', ':'], Quote: ["'", '"'], Backquote: ['`', '~'],
+  Comma: [',', '<'], Period: ['.', '>'], Slash: ['/', '?']
+};
+for (const c of 'abcdefghijklmnopqrstuvwxyz') VIM_US['Key' + c.toUpperCase()] = [c, c.toUpperCase()];
+[...')!@#$%^&*('].forEach((shifted, d) => { VIM_US['Digit' + d] = [String(d), shifted]; });
+function vimKeyOf(e) {
+  const us = VIM_US[e.code];
+  if (!us || (e.key.length > 1 && e.key !== 'Dead' && e.key !== 'Process')) return e.key;
+  const caps = /^Key/.test(e.code) && e.getModifierState('CapsLock');
+  return us[e.shiftKey !== caps ? 1 : 0];
+}
 function vimKey(e) {
-  const k = e.key;
+  const k = vimKeyOf(e);
   // counts: 3w, 12j (a 0 on its own is the start of the line)
   if (/^[0-9]$/.test(k) && (k !== '0' || vimCount)) { vimCount += k; return; }
   const times = Math.max(1, Math.min(999, parseInt(vimCount || '1', 10)));
@@ -4240,11 +4257,12 @@ function vimKey(e) {
 // first in line for keys in the page and the notes, ahead of NEO's own
 // typing rules, and only while vim keys are on
 window.addEventListener('keydown', (e) => {
-  if (!vimEnabled || e.isComposing || e.keyCode === 229) return;
+  if (!vimEnabled) return;
   const ed = vimEditor(e.target);
   if (!ed) { if (vimNav) vimSetNav(false); return; }
   if (document.querySelector('.modal-backdrop:not([hidden])')) return;
   if (!vimNav) {
+    if (e.isComposing || e.keyCode === 229) return; // an input method's, while writing
     // Esc while writing: start moving
     if (e.key === 'Escape' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       e.preventDefault();
@@ -4264,16 +4282,17 @@ window.addEventListener('keydown', (e) => {
     vimPending = '';
     return;
   }
+  const k = vimKeyOf(e);
   // Ctrl-d / Ctrl-u move half a screen; other modified keys keep their jobs
-  if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'd' || e.key === 'u')) {
+  if (e.ctrlKey && !e.metaKey && !e.altKey && (k === 'd' || k === 'u')) {
     e.preventDefault();
     e.stopPropagation();
-    vimHalfPage(e.key === 'd' ? 1 : -1);
+    vimHalfPage(k === 'd' ? 1 : -1);
     return;
   }
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || e.getModifierState('AltGraph')) return;
   // arrows, Home, End, Page Up and Down still move as they always do
-  if (e.key.length > 1 && e.key !== 'Enter' && e.key !== 'Backspace' && e.key !== 'Delete' && e.key !== 'Tab') return;
+  if (k.length > 1 && k !== 'Enter' && k !== 'Backspace' && k !== 'Delete' && k !== 'Tab') return;
   e.preventDefault();
   e.stopPropagation();
   if (ed.classList.contains('chapter-body')) typewriterByKeyboard = true; // typewriter scrolling follows
@@ -4284,6 +4303,33 @@ window.addEventListener('keydown', (e) => {
 document.addEventListener('focusin', (e) => {
   if (vimNav && !vimEditor(e.target)) vimSetNav(false);
 });
+// Moving, nothing a keyboard types lands in the text. What ⌥ or AltGr makes
+// is refused. A dead key or an input method reaches the page after the
+// system has begun composing with it, which can't be refused, so the
+// composition is ended as soon as it starts (moving the focus away and
+// back commits it and resets the composer), and its text comes back out.
+document.addEventListener('beforeinput', (e) => {
+  if (vimNav && vimEditor(e.target) && e.inputType === 'insertText') e.preventDefault();
+}, true);
+document.addEventListener('compositionstart', (e) => {
+  const ed = vimNav && vimEditor(e.target);
+  const s = window.getSelection();
+  if (!ed || !s.rangeCount) return;
+  const at = s.getRangeAt(0).cloneRange();
+  const before = ed.innerHTML;
+  // setting the selection ends the engine's typing run, so the composed
+  // text is an undo step of its own and not part of the last x
+  s.removeAllRanges();
+  s.addRange(at);
+  setTimeout(() => {
+    if (document.activeElement !== ed) return;
+    ed.blur();
+    ed.focus({ preventScroll: true });
+    if (ed.innerHTML !== before) document.execCommand('undo');
+    s.removeAllRanges();
+    s.addRange(at);
+  }, 0);
+}, true);
 
 // Escape also exits regular fullscreen from the bookshelf
 document.addEventListener('keydown', (e) => {
