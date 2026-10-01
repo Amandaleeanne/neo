@@ -118,6 +118,7 @@ CI copies `app.js`, `covers.js`, `styles.css`, `i18n.js`, `fonts/`, and `locales
 npm install
 npm start
 npm test                   # node --test scripts/*.test.js
+npm run test:coverage      # node --test --experimental-test-coverage scripts/*.test.js
 npm run lint               # oxlint, Electron's standard-style JavaScript rules
 npm run test:spellcheck    # node --test scripts/spellcheck.test.js
 npm run test:dashes        # node --test scripts/dashes.test.js
