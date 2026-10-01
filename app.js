@@ -3820,6 +3820,32 @@ $('#tp-author').addEventListener('input', () => {
   scheduleMetaSave();
 });
 
+// Which logical shortcut a keyboard event means.
+//
+// Matched by the CHARACTER the key types, not the position it sits at: the help
+// overlay names characters (⌘/), and a character is what a menu accelerator can
+// name. A physical fallback catches the layouts where that character needs a
+// modifier the accelerator cannot spell — on Swiss German `/` is Shift+7 and
+// `;` is Shift+`,`, and on German `ö` sits on the `;` key — and every fallback
+// skips the character the menu already handles, so one press fires one action.
+function isSpellcheckShortcut(e) {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return false;
+  if (e.shiftKey && e.key === ';') return true;
+  return e.code === 'Semicolon' && e.key !== ';';
+}
+function isLargerTextShortcut(e) {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return false;
+  return e.key === '+' || e.key === '=' || e.code === 'NumpadAdd';
+}
+function isSmallerTextShortcut(e) {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return false;
+  return e.key === '-' || e.code === 'NumpadSubtract';
+}
+function isHelpShortcut(e) {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return false;
+  return e.key === '/' || e.key === '?';
+}
+
 // Global editor shortcuts
 document.addEventListener('keydown', (e) => {
   if ($('#editor-view').hidden) return;
@@ -3833,19 +3859,34 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (currentTab === 'manuscript') darlingFromKeyboard();
   }
-  // Ctrl+; is matched by the character, not the key position. On a German
-  // QWERTZ keyboard the semicolon is Shift+',' — a combination the menu
-  // accelerator cannot name, so Ctrl+; never fired there. Shift is required
-  // in this branch because the plain Ctrl+; case belongs to the menu on the
-  // layouts that have it; this catches the ones that need Shift to type ';'.
-  if (cmd && e.shiftKey && !e.altKey && e.key === ';') {
+  if (isSpellcheckShortcut(e)) {
     e.preventDefault();
     toggleSpellcheck();
+  }
+  // The text-size pair keeps the menu's own keys on the layouts where they
+  // match, and takes over by character where they do not (`+` is Shift+1 on
+  // Swiss German, so CmdOrCtrl-Plus never fires there).
+  if (isLargerTextShortcut(e)) {
+    e.preventDefault();
+    void setEditorFontSize(1);
+  }
+  if (isSmallerTextShortcut(e)) {
+    e.preventDefault();
+    void setEditorFontSize(-1);
   }
   if (e.key === 'Escape') {
     if (!$('#searchbar').hidden) closeSearch();
     else window.neo.fullscreenEscape().then((exited) => { if (!exited) backToShelf(); });
   }
+});
+
+// The help character works on every layout, editor or shelf: ⌘/ needs Shift+7
+// on Swiss German, which the bare-character accelerator cannot name, so the
+// renderer catches the character the layout produced.
+document.addEventListener('keydown', (e) => {
+  if (!isHelpShortcut(e)) return;
+  e.preventDefault();
+  showHelp();
 });
 
 // ⌥⌘↓ / ⌥⌘↑ (Ctrl+Alt on Windows and Linux): next or previous chapter.
@@ -8723,6 +8764,16 @@ async function showAbout() {
   bd.querySelector('.m-ok').focus();
 }
 
+// Text size and the reset travel with page zoom; the menu item and the
+// keyboard fallback share this so the two cannot drift.
+async function setEditorFontSize(value) {
+  const cur = library.editorFontSize || 17;
+  library.editorFontSize = value === 0 ? 17 : Math.min(22, Math.max(14, cur + value));
+  if (value === 0) library.pageZoom = 1; // ⌘0 resets pinch zoom too
+  await writeLibrary(library);
+  keepReadingPlace(applyFonts);
+}
+
 window.neo.onMenu(async (msg) => {
   // full screen and focus mode together hide the bottom bar until hovered
   // (styles.css); the window says when it goes in and out, whatever is open
@@ -8794,11 +8845,7 @@ window.neo.onMenu(async (msg) => {
     applyFonts();
   }
   if (msg.type === 'fontSize') {
-    const cur = library.editorFontSize || 17;
-    library.editorFontSize = msg.value === 0 ? 17 : Math.min(22, Math.max(14, cur + msg.value));
-    if (msg.value === 0) library.pageZoom = 1; // ⌘0 resets pinch zoom too
-    await writeLibrary(library);
-    keepReadingPlace(applyFonts);
+    await setEditorFontSize(msg.value);
   }
   if (msg.type === 'bodyFontPick') {
     const name = await pickLocalFont();
