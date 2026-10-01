@@ -3604,7 +3604,7 @@ function smartKeys(e, body) {
     let opening = before === '' || /[\s\(\[\{‘“«„>]/.test(before);
     // after a dash, a quote usually closes speech that was cut off ("I was
     // just—"); it opens one only when no quotation is open in the paragraph
-    if (before === '—' || before === '–') opening = !quoteIsOpen(range, e.key === '"' ? q : { open: '‘', close: '’' });
+    if (before === '—' || before === '–') opening = !quoteIsOpen(range, e.key === '"' ? q : { open: '‘', close: '’' }, e.key === '"' ? '"' : '');
     let ch;
     if (e.key === "'") {
       // most languages type ' as an apostrophe only; English and Dutch also
@@ -3617,28 +3617,35 @@ function smartKeys(e, body) {
   }
 }
 
-// Is a quotation open at the caret, in the paragraph so far? Opening marks
-// against closing ones; an apostrophe (’ between two letters) is no quote.
-function quoteIsOpen(range, q) {
+// Is a quotation open at the caret, in the paragraph so far?
+function quoteIsOpen(range, q, straight) {
   let el = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
   const block = el && el.closest ? el.closest('p, div') : null;
   if (!block) return false;
   const pre = document.createRange();
   pre.selectNodeContents(block);
   try { pre.setEnd(range.startContainer, range.startOffset); } catch { return false; }
-  const text = pre.toString();
+  return quoteOpenIn(pre.toString(), q, straight);
+}
+// The count itself: opening marks against closing ones; an apostrophe (’
+// between two letters) is no quote. Straight marks ("), which text imported
+// or pasted from a plain-text editor arrives with, have no side of their
+// own: they pair up in turn, so an odd one out is an open quotation.
+function quoteOpenIn(text, q, straight = '') {
   const open = q.open.trim();
   const close = q.close.trim();
   let depth = 0;
+  let straights = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (c === open && open !== close) depth++;
+    if (straight && c === straight) straights++;
+    else if (c === open && open !== close) depth++;
     else if (c === close) {
       if (close === '’' && /\p{L}/u.test(text[i - 1] || '') && /\p{L}/u.test(text[i + 1] || '')) continue;
       depth = Math.max(0, depth - 1);
     }
   }
-  return depth > 0;
+  return depth > 0 || straights % 2 === 1;
 }
 
 // The quotation marks of the language being written: the spellcheck
