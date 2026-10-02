@@ -311,18 +311,81 @@ function writeCatalog() {
   }
 }
 
-function readJSON(file, fallback) {
+// Writing that survives the power going out. A new file is written beside
+// the old one, pushed all the way to the disk (fsync), and only then swapped
+// in. Without the push, a power cut right after the swap can leave the swap
+// done and the words not: an empty book.json, and the book gone from its
+// shelf (#219). A missing file or an unlucky moment never costs more than
+// the last few seconds.
+function writeFileDurable(file, data) {
+  const tmp = file + '.tmp';
+  const fd = fs.openSync(tmp, 'w');
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
+    fs.writeSync(fd, typeof data === 'string' ? data : Buffer.from(data));
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+  // the swap itself, on systems that let a folder be pushed too
+  if (process.platform !== 'win32') {
+    try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } } catch { /* fine */ }
   }
 }
 
+// JSON reads fall back on the copies a write leaves: the .tmp a write was
+// making when it stopped, then .bak, the last version that read whole. What
+// they recover is put back as the file itself.
+function parseJSONFile(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return undefined; }
+}
+function readJSON(file, fallback) {
+  const main = parseJSONFile(file);
+  if (main !== undefined) return main;
+  if (!fs.existsSync(file) && !fs.existsSync(file + '.bak')) return fallback;
+  for (const spare of [file + '.tmp', file + '.bak']) {
+    const v = parseJSONFile(spare);
+    if (v === undefined) continue;
+    logError('recovered', `${file} was unreadable; restored from ${path.basename(spare)}`);
+    try { writeFileDurable(file, JSON.stringify(v, null, 2)); } catch (err) { logError('recover write', err); }
+    return v;
+  }
+  return fallback;
+}
+
 function writeJSON(file, data) {
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-  fs.renameSync(tmp, file); // atomic-ish: never leave a half-written file
+  // the version on disk, while it reads whole, becomes the .bak
+  if (parseJSONFile(file) !== undefined) {
+    try { fs.copyFileSync(file, file + '.bak'); } catch { /* the write still goes ahead */ }
+  }
+  writeFileDurable(file, JSON.stringify(data, null, 2));
+}
+
+// A book whose book.json is gone for good (and no .bak) still has its
+// chapters: the book comes back with them in the order they were made, its
+// title from the catalog, rather than vanishing from the shelf.
+function rebuildBookMeta(bookId) {
+  const dir = bookDir(bookId);
+  const chDir = path.join(dir, 'chapters');
+  if (!fs.existsSync(chDir)) return null;
+  let title = '';
+  try {
+    const cat = fs.readFileSync(path.join(LIBRARY_DIR, '_catalog.txt'), 'utf8');
+    const line = cat.split('\n').find((l) => l.includes('  —  ' + bookId + '  —  '));
+    if (line) title = line.split('  —  ')[0].trim();
+  } catch { /* no catalog */ }
+  const order = fs.readdirSync(chDir).filter((f) => f.endsWith('.html')).map((f) => f.slice(0, -5)).sort();
+  const meta = {
+    id: bookId,
+    title: title || t('Untitled'),
+    subtitle: '', series: '', author: t('Anonymous'), wordGoal: 0,
+    created: new Date().toISOString(), modified: new Date().toISOString(),
+    chapterOrder: order,
+    tabNames: { notes: 'Notes', outline: 'Outline' }
+  };
+  logError('recovered', `${bookId}/book.json was lost; rebuilt from ${order.length} chapter files`);
+  try { writeJSON(path.join(dir, 'book.json'), meta); } catch (err) { logError('recover write', err); }
+  return meta;
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +394,21 @@ function writeJSON(file, data) {
 
 ipcMain.handle('library:read', () => {
   ensureLibrary();
-  return readJSON(LIBRARY_FILE, null);
+  const lib = readJSON(LIBRARY_FILE, null);
+  if (lib) return lib;
+  // library.json lost with no copy to fall back on: every book in the
+  // folder goes onto one shelf, so nothing disappears
+  const ids = [];
+  try {
+    for (const d of fs.readdirSync(LIBRARY_DIR)) {
+      if (d.startsWith('book-') && fs.existsSync(path.join(LIBRARY_DIR, d, 'chapters'))) ids.push(d);
+    }
+  } catch { /* empty */ }
+  const seed = { authorName: '', penNames: [], firstRunDone: ids.length > 0, pageTheme: 'night',
+    shelves: [{ id: 'shelf-1', name: t('Works in Progress'), bookIds: ids }] };
+  logError('recovered', `library.json was lost; ${ids.length} books put back on one shelf`);
+  try { writeJSON(LIBRARY_FILE, seed); } catch (err) { logError('recover write', err); }
+  return seed;
 });
 
 ipcMain.handle('library:write', (_e, data) => {
@@ -387,7 +464,7 @@ ipcMain.handle('library:listBooks', () => {
 });
 
 ipcMain.handle('book:readMeta', (_e, bookId) => {
-  return readJSON(path.join(bookDir(bookId), 'book.json'), null);
+  return readJSON(path.join(bookDir(bookId), 'book.json'), null) || rebuildBookMeta(bookId);
 });
 
 ipcMain.handle('book:writeMeta', (_e, bookId, meta) => {
@@ -429,7 +506,7 @@ ipcMain.handle('chapter:write', (_e, bookId, chapterId, html) => {
   const dir = path.join(bookDir(bookId), 'chapters');
   const file = path.join(dir, libName(chapterId) + '.html');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(file, html);
+  writeFileDurable(file, html);
   return true;
 });
 
@@ -450,7 +527,7 @@ ipcMain.handle('aux:read', (_e, bookId, name) => {
 });
 
 ipcMain.handle('aux:write', (_e, bookId, name, html) => {
-  fs.writeFileSync(path.join(bookDir(bookId), libName(name) + '.html'), html);
+  writeFileDurable(path.join(bookDir(bookId), libName(name) + '.html'), html);
   return true;
 });
 

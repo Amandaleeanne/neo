@@ -71,7 +71,7 @@ App settings and the cover-art API key live in Electron `userData` (`settings.js
 
 Every book id, chapter id, and sidecar name passes through `libName()` in `main.js`. It allows one path segment and rejects `.`, `..`, slashes, and null bytes. Keep new files inside that helper.
 
-JSON writes (`writeJSON`) go to `file.tmp` and rename into place. Chapter, notes, and outline HTML are a full-file `writeFileSync`. There is no append and no partial chapter update.
+Every library write goes through `writeFileDurable`: `file.tmp`, fsync, then rename into place, so a power cut can't leave an empty file. `writeJSON` also keeps the last version that read whole as `file.bak`, and `readJSON` falls back on `.tmp`, then `.bak`. A `book.json` lost with no copy is rebuilt from the chapter files (`rebuildBookMeta`). There is no append and no partial chapter update.
 
 `json:write` and `aux:write` will create any single-segment `<name>.json` or `<name>.html` in the book folder. Prefer the existing names unless a new sidecar is actually required.
 
