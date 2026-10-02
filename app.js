@@ -3327,7 +3327,7 @@ function sceneBreakDelete(e, body, chId) {
 function captureBody(body) {
   // (a page marks the lines that say who said it, and a chapter the speech
   // after a scene break, for the screen only)
-  return body.innerHTML.replace(/<p\b[^>]*>/g, (tag) => tag.replace(/ data-(?:attr|speech)=""/g, ''));
+  return body.innerHTML.replace(/<p\b[^>]*>/g, (tag) => tag.replace(/ data-(?:attr|speech|first)=""/g, ''));
 }
 
 // A chapter that opens on a line of dialogue sets no drop cap: the dash
@@ -3335,8 +3335,19 @@ function captureBody(body) {
 // scene break, keep their indent where prose is set flush, so the speech
 // lines up with the lines that answer it. The marks are never saved.
 const OPENING_DASH = /^\s*[-‐‑‒–—―]/;
+// A chapter's opening paragraph — the one with the drop cap and no indent —
+// is its first paragraph with words in it, past a blank line or a *** at the
+// top (the exports skip those too). Poetry stands apart. In an empty
+// chapter it's the paragraph waiting for the first word. Marked data-first,
+// for the screen only.
+function openingPara(body) {
+  const ps = [...body.children].filter((p) => p.tagName === 'P' && !p.classList.contains('poetry') && !p.classList.contains('scene-break') && !p.classList.contains('ghost'));
+  return ps.find((p) => p.textContent.trim() !== '') || ps[0] || null;
+}
 function markDialogueOpening(body) {
-  const first = body.querySelector('p:not(.poetry)'); // the drop cap skips poetry paragraphs
+  const first = openingPara(body);
+  for (const p of body.querySelectorAll('p[data-first]')) if (p !== first) p.removeAttribute('data-first');
+  if (first && !first.hasAttribute('data-first')) first.setAttribute('data-first', '');
   body.classList.toggle('opens-dialogue', !!first && OPENING_DASH.test(first.textContent));
   for (const p of body.querySelectorAll('p[data-speech]')) if (!p.matches('.scene-break + p')) p.removeAttribute('data-speech');
   for (const p of body.querySelectorAll('p.scene-break + p')) {
@@ -3392,7 +3403,7 @@ document.addEventListener('selectionchange', () => {
     window.neo.flushState(inFlush);
   }
   const inFirst = caretP && caretP.parentElement &&
-    caretP === caretP.parentElement.querySelector('p:not(.poetry)');
+    caretP.hasAttribute('data-first');
   const capBody = inFirst ? caretP.parentElement : null;
   if (capBody !== capOffBody) {
     if (capOffBody && capOffBody.isConnected) capOffBody.classList.remove('cap-off');
@@ -7193,7 +7204,7 @@ function updateFocus() {
   // on its chapter body (a class on the body itself is never saved)
   document.querySelectorAll('.chapter-body.focus-cap').forEach((b) => b.classList.remove('focus-cap'));
   const body = p.parentElement;
-  const first = body.querySelector('p:not(.poetry)'); // the drop cap skips poetry paragraphs
+  const first = body.querySelector('p[data-first]'); // the paragraph with the drop cap (openingPara)
   const firstText = first && document.createTreeWalker(first, NodeFilter.SHOW_TEXT).nextNode();
   if (r && firstText && r.comparePoint(firstText, 0) === 0) body.classList.add('focus-cap');
 }

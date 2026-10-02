@@ -607,7 +607,7 @@ body.focus-mode .sheet ::selection { color: #1c1c1c; }
 body.focus-mode.night .sheet ::selection { color: #d6d2c6; }
 /* the drop cap sits outside the highlight's reach; same selector as the cap
    itself so no other paragraph grows a ::first-letter */
-body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-cap):not(.opens-dialogue) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter { color: var(--ink); }
+body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-cap):not(.opens-dialogue) p[data-first]::first-letter { color: var(--ink); }
 .sheet {
   background: var(--paper); color: var(--ink);
   padding: 70px 72px 90px;
@@ -680,8 +680,9 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-c
    pass (the source of duplicated characters on delete) never runs */
 .chapter-body p { text-indent: 2em; margin: 0; white-space: pre-wrap; }
 #aux-editor p { white-space: pre-wrap; }
-/* the chapter's opening paragraph: the first one that isn't poetry */
-.chapter-body p:not(.poetry):not(p:not(.poetry) ~ p) { text-indent: 0; }
+/* the chapter's opening paragraph: the first with words that isn't poetry
+   (marked data-first in app.js) */
+.chapter-body p[data-first] { text-indent: 0; }
 /* Poetry paragraphs (⇧Enter): a quote, a stanza, a POV name, a dateline —
    pulled in from both margins, italic, no first-line indent, never a drop
    cap. Consecutive lines make one block; the block breathes above and below.
@@ -700,7 +701,7 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-c
 /* cap-off while the caret is in the first paragraph: the rule must stop
    MATCHING entirely — a matching first-letter rule, even styled to nothing,
    makes the engine split the text internally, which corrupts deletes */
-body:not(.no-dropcap) .chapter-body:not(.cap-off):not(.no-cap):not(.opens-dialogue) p:not(.poetry):not(p:not(.poetry) ~ p)::first-letter {
+body:not(.no-dropcap) .chapter-body:not(.cap-off):not(.no-cap):not(.opens-dialogue) p[data-first]::first-letter {
   font-size: 3.4em; float: left; line-height: 0.8;
   padding: 4px 8px 0 0; font-family: var(--dropcap-font);
 }
@@ -739,7 +740,7 @@ body.bright .spell-menu button { color: #eee; }
 /* …except a line of dialogue, there and at a story's opening: it keeps its
    indent, in line with the speech that follows (marked in app.js). Pages
    that aren't stories (no-cap) set their lines their own way. */
-.chapter-body.opens-dialogue:not(.no-cap) p:not(.poetry):not(p:not(.poetry) ~ p):not([style*="text-align"]),
+.chapter-body.opens-dialogue:not(.no-cap) p[data-first]:not([style*="text-align"]),
 .chapter-body:not(.no-cap) p.scene-break + p[data-speech]:not([style*="text-align"]) { text-indent: 2em; }
 /* centered/right paragraphs drop the first-line indent; justified keep it */
 .chapter-body p[style*="text-align"]:not([style*="justify"]) { text-indent: 0; }
