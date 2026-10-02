@@ -1147,7 +1147,7 @@ function createWindow() {
   }
   const win = new BrowserWindow({
     ...bounds,
-    minWidth: 800,
+    minWidth: 700,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     backgroundColor: roomColor(libraryPageTheme()),
