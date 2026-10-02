@@ -10,7 +10,11 @@
     "test:spellcheck": "node --test scripts/spellcheck.test.js",
     "test:dashes": "node --test scripts/dashes.test.js",
     "test:words": "electron scripts/words.e2e.js",
-    "package": "electron-builder --mac",
+    "test": "node --test \"scripts/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage \"scripts/*.test.js\"",
+    "lint": "oxlint",
+    "package": "npm run package:mac",
+    "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win",
     "package:linux": "electron-builder --linux",
     "package:all": "electron-builder --mac --win --linux"
@@ -127,7 +131,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^43.0.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "oxlint": "^1.86.0"
   },
   "dependencies": {
     "@farscrl/hunspell-wasm": "1.0.1",
