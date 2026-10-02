@@ -1262,7 +1262,11 @@ function createWindow() {
     if (win.isDestroyed()) return;
     win.webContents.send('menu', { type: 'fullScreen', value: full }); // the page's bottom bar too
     if (process.platform === 'darwin') return;
-    win.setMenuBarVisibility(!full && !win.isMenuBarAutoHide());
+    // full screen hides the bar until Alt brings it up (and it tucks away
+    // again after a choice), the way Windows apps do; out of full screen
+    // it's always there
+    win.setAutoHideMenuBar(full);
+    win.setMenuBarVisibility(!full);
   });
   win.on('enter-full-screen', () => fullScreenChanged(true));
   win.on('leave-full-screen', () => fullScreenChanged(false));
