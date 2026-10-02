@@ -84,7 +84,11 @@
     },
     "nsis": {
       "oneClick": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "asarUnpack": [
       "node_modules/dictionary-ro/**",

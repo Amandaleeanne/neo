@@ -11,7 +11,9 @@ NEO runs locally. WIPs are saved in plain files on your disk. No accounts or sub
 Get the latest installer from the **[Releases page](../../releases)**:
 
 - **macOS** — download the `.dmg` for older Intel machines or the arm64 file for Mac silicon. Open it and drag NEO to Applications.
-- **Windows** — download the `.exe` and run it. Or get the setup installer and run that.
+- **Windows** — get `NEO-Setup` (the installer, which keeps itself up to date) and run it, or the `portable` `.exe`, which runs without installing.
+
+  Your library lives in `Documents\NEO Library`. If OneDrive backs up your Documents folder, that puts your books in OneDrive too; File → Library Folder… moves the library anywhere you like. If Windows Security's *Controlled folder access* is on, Windows won't let NEO save in Documents: NEO says so when it starts, and you can allow NEO there or pick another folder.
 - **Linux** — download the `.AppImage`, make it executable, and run it:
 
   ```

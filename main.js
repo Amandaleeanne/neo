@@ -7,6 +7,16 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+// Every disk request from the page passes through here: a write the system
+// refuses (see reportBlockedWrite) is explained to the writer, then the error
+// goes back to the page as before.
+{
+  const handle = ipcMain.handle.bind(ipcMain);
+  ipcMain.handle = (channel, fn) => handle(channel, async (...args) => {
+    try { return await fn(...args); } catch (err) { reportBlockedWrite(err); throw err; }
+  });
+}
+
 // macOS Chromium's "smart delete" also removes whitespace around a deleted
 // selection, and that pass can duplicate characters. Deletes stay literal.
 app.commandLine.appendSwitch('blink-settings', 'smartInsertDeleteEnabled=false');
@@ -166,6 +176,79 @@ async function chooseLibraryFolder() {
   writeSettings(settings);
   app.relaunch();
   app.exit(0);
+}
+
+// Can NEO write in this folder? Windows' Controlled folder access (Defender's
+// ransomware protection) refuses new files in Documents to apps it doesn't
+// know, and NEO is one. A small file written and removed tells.
+function folderWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.neo-write-test');
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    return true;
+  } catch (err) {
+    logError('library folder not writable: ' + dir, err);
+    return false;
+  }
+}
+const isBlockedWrite = (err) => !!err && ['EPERM', 'EACCES', 'EROFS'].includes(err.code);
+function blockedDetail(dir) {
+  return t('Your books can\'t be saved in:\n{dir}', { dir }) + '\n\n' + (process.platform === 'win32'
+    ? t('This is usually Windows Security\'s Controlled folder access (Virus & threat protection → Ransomware protection). Allow NEO there, or keep your library in another folder.')
+    : t('Check that the folder exists and that NEO may write to it, or keep your library in another folder.'));
+}
+// At startup, before any window: a library that can't be written is said
+// plainly, once, with a way out — not a hiccup at "Start writing"
+function checkLibraryWritable() {
+  // (only where it can happen: on Windows, and anywhere before a first
+  // library exists; a synced library elsewhere isn't sent a test file
+  // every launch)
+  if (process.platform !== 'win32' && fs.existsSync(LIBRARY_FILE)) return;
+  while (!folderWritable(LIBRARY_DIR)) {
+    const r = dialog.showMessageBoxSync({
+      type: 'warning',
+      message: t('NEO can\'t save in your library folder'),
+      detail: blockedDetail(LIBRARY_DIR),
+      buttons: [t('Choose Folder…'), t('Try Again'), t('Continue')],
+      defaultId: 0,
+      cancelId: 2
+    });
+    if (r === 2) return;
+    if (r === 0) {
+      const picked = dialog.showOpenDialogSync({
+        title: t('Choose a folder for your NEO library'),
+        defaultPath: os.homedir(),
+        properties: ['openDirectory', 'createDirectory']
+      });
+      if (!picked || !picked[0]) continue;
+      LIBRARY_DIR = picked[0];
+      LIBRARY_FILE = path.join(LIBRARY_DIR, 'library.json');
+      const settings = readSettings();
+      settings.libraryDir = LIBRARY_DIR;
+      try { writeSettings(settings); } catch (err) { logError('settings', err); }
+    }
+  }
+}
+// Later on (the protection switched on mid-session), a refused save says so
+// once. The words stay on the page; NEO saves them as soon as it may.
+let blockedShown = false;
+function reportBlockedWrite(err) {
+  if (blockedShown || !isBlockedWrite(err)) return;
+  // the library's own files only (an export to a protected folder is the
+  // export's business)
+  const rel = err.path ? path.relative(LIBRARY_DIR, err.path) : '..';
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return;
+  blockedShown = true;
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  const opts = {
+    type: 'warning',
+    message: t('NEO can\'t save in your library folder'),
+    detail: blockedDetail(LIBRARY_DIR) + '\n\n' + t('Your words stay on the page until it can.'),
+    buttons: [t('OK')]
+  };
+  (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).catch(() => {});
 }
 
 function ensureLibrary() {
@@ -1059,11 +1142,15 @@ ipcMain.handle('import:pick', async () => {
 const ERROR_LOG = () => path.join(LIBRARY_DIR, 'neo-errors.log');
 
 function logError(source, err) {
+  const line = `[${new Date().toISOString()}] [${source}] ${err && err.stack ? err.stack : String(err)}\n`;
   try {
     ensureLibrary();
-    const line = `[${new Date().toISOString()}] [${source}] ${err && err.stack ? err.stack : String(err)}\n`;
     fs.appendFileSync(ERROR_LOG(), line);
-  } catch { /* never let logging crash the app */ }
+  } catch {
+    // the library can't be written (the very case worth logging): NEO's own
+    // app folder takes the line instead
+    try { fs.appendFileSync(path.join(app.getPath('userData'), 'neo-errors.log'), line); } catch { /* never let logging crash the app */ }
+  }
 }
 
 process.on('uncaughtException', (err) => logError('main', err));
@@ -2046,6 +2133,7 @@ app.whenReady().then(() => {
     }
 
     try { initLanguage(); } catch (err) { logError('language', err); }
+    try { checkLibraryWritable(); } catch (err) { logError('library check', err); }
     try { ensureLibrary(); } catch (err) { logError('library', err); }
     createWindow();
     try { initSpell(); } catch (err) { logError('spell', err); }
