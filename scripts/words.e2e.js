@@ -117,6 +117,33 @@ test('a selection across paragraphs counts their words', async () => {
   }
 });
 
+// the double click's first click moves the caret, which asks for a recount
+// a moment later; the word the second click selects keeps its count
+test('a double-clicked word counts as selected', async () => {
+  await caretAtEnd();
+  const [x, y] = await js(`(() => {
+    const p = document.querySelector('.chapter-body').lastElementChild;
+    p.scrollIntoView({ block: 'center' });
+    const r = document.createRange();
+    r.setStart(p.firstChild, 0);
+    r.setEnd(p.firstChild, 4); // Rain
+    const box = r.getBoundingClientRect();
+    return [Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2)];
+  })()`);
+  for (const clickCount of [1, 2]) {
+    wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount });
+    wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount });
+    await tick(60); // a hand's double click, not one event
+  }
+  await tick(300);
+  try {
+    assert.equal(await js('getSelection().toString().trim()'), 'Rain');
+    assert.equal(await text('word-counter'), '1 selected');
+  } finally {
+    await caretAtEnd();
+  }
+});
+
 test('a paragraph typed after the last one adds its words', async () => {
   await caretAtEnd();
   await type('\nwind off the sea.');

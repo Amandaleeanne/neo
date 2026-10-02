@@ -5785,6 +5785,9 @@ $('#word-counter').onclick = () => {
 // select a passage → the counter reports its size
 document.addEventListener('selectionchange', () => {
   if (!book || currentTab !== 'manuscript') return;
+  // the recount a click asked for would cover the count of the word a
+  // double click goes on to select
+  clearTimeout(saveTimers.selcount);
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) {
     let el = sel.anchorNode;
@@ -5797,7 +5800,6 @@ document.addEventListener('selectionchange', () => {
       }
     }
   }
-  clearTimeout(saveTimers.selcount);
   saveTimers.selcount = setTimeout(() => { if (book) updateCounters(); }, 150);
 });
 
