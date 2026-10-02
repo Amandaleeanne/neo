@@ -3002,7 +3002,10 @@ function handleEnter(e, body, chId) {
       // a break made by the full double-Enter gesture un-splits on undo too
       snapshotStructure('section break', { rejoin: enterRun >= 2 });
       if (prev.textContent.trim() === '') {
-        prev.classList.add('scene-break');
+        // a break is only a break: no alignment or paragraph kind carried
+        // over from the paragraph it was made in (a justified one set it left)
+        prev.removeAttribute('style');
+        prev.className = 'scene-break';
         prev.textContent = '***';
       } else {
         const brk = document.createElement('p');
@@ -3048,7 +3051,8 @@ function handleEnter(e, body, chId) {
   if (prev) {
     e.preventDefault();
     snapshotStructure('section break', { rejoin: enterRun >= 2 });
-    block.classList.add('scene-break');
+    block.removeAttribute('style'); // (see above: a break carries nothing over)
+    block.className = 'scene-break';
     block.textContent = '***';
     const np = document.createElement('p');
     np.innerHTML = '<br>';
