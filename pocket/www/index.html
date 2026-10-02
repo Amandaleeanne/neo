@@ -221,7 +221,7 @@
         tick('Typewriter scrolling', st.typewriter, { type: 'typewriter' }) +
         tick('Poetry paragraph  ⇧Enter', st.poetry, { type: 'poetry' }) +
         (window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'ios' ? '' :
-          `<div class="pm-row"><span class="pm-label">On-screen keyboard</span><span class="pm-seg"><button data-act="keyboard">${localStorage.getItem('pocket-soft-keyboard') === 'off' ? 'Off' : '✓ On'}</button></span></div>`) +
+          `<div class="pm-row"><span class="pm-label">On-screen keyboard</span><span class="pm-seg"><button data-act="keyboard">${window.pocketSoftKeyboardOn && !window.pocketSoftKeyboardOn() ? 'Off' : '✓ On'}</button></span></div>`) +
         (typeof book !== 'undefined' && book
           ? `<div class="pm-row"><span class="pm-label">Export</span><span class="pm-seg pm-wrap">` +
             [['txt', 'Text'], ['md', 'Markdown'], ['html', 'HTML'], ['docx', 'Word'], ['epub', 'EPUB']].map(([f, l]) => `<button data-msg='${JSON.stringify({ type: 'export', format: f })}'>${l}</button>`).join('') + '</span></div>'

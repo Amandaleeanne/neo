@@ -1236,7 +1236,11 @@ function createWindow() {
     ...bounds,
     minWidth: 800,
     minHeight: 600,
-    titleBarStyle: 'hiddenInset',
+    // the Mac's inset traffic lights. Only there: on Linux any title bar
+    // style but the default leaves the window frameless, and on Wayland the
+    // menu bar lives in that frame (KDE Plasma showed no menu, and Alt
+    // found nothing to show)
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : {}),
     backgroundColor: roomColor(libraryPageTheme()),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

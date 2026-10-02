@@ -5588,6 +5588,15 @@ function trackDailyWords(total) {
   } else if (book.dailyCounts[today].end !== total) {
     book.dailyCounts[today].end = total;
   }
+  // Cutting is writing too: words cut below where the day began move the
+  // day's start down with them, so today never reads below zero, and what's
+  // written after the cut counts in full. (Cut what you wrote today, and
+  // today is smaller: that part is honest.)
+  if (total < book.dailyCounts[today].start) {
+    book.dailyCounts[today].start = total;
+    scheduleMetaSave();
+  }
+  if (sprint && total < sprint.startCount) sprint.startCount = total;
   const wordsToday = book.dailyCounts[today].end - book.dailyCounts[today].start;
   const gc = $('#goal-counter');
   if (sprint && !sprint.done) {
@@ -6545,8 +6554,69 @@ async function spellScanEl(el, key) {
     if (wrong.length) for (const pt of wrong) mark(o.node, pt.start, pt.end);
     else if (o.whole) mark(o.node, o.start, o.end); // every piece fine, the whole not
   }
+  const caps = capitalSlips(el);
+  for (const r of caps) ranges.push(r);
+  capsRanges.set(key, caps);
   spellRanges.set(key, ranges);
   rebuildSpellHighlight();
+}
+
+// Capitals the dictionary can't see, since it takes any word in lowercase:
+// a sentence that starts small, and, in English, "i" for "I". Underlined
+// like a misspelling; right-click offers the capital. Manuscript prose only
+// (notes are the writer's scratch paper, and poetry sets its own case).
+// Mid-paragraph, only a full stop ends a sentence: "Oh! how lovely",
+// "— Quanto falta? — perguntou ele" and "…and then" are the writer's.
+const capsRanges = new Map(); // key → [Range]
+const CAPS_ABBREV = new Set(['mr', 'mrs', 'ms', 'dr', 'st', 'jr', 'sr', 'vs', 'etc', 'e.g', 'i.e', 'cf', 'approx', 'no', 'vol', 'pp', 'p', 'fig', 'ca', 'mt', 'ft', 'lt', 'sgt', 'capt', 'col', 'gen', 'prof', 'rev', 'hon', 'inc', 'ltd', 'co', 'ave', 'a.m', 'p.m', 'sra', 'sr', 'srta', 'dra', 'av', 'ex', 'z.b', 'bzw', 'ggf', 'usw', 'm', 'mme', 'mlle']);
+function capitalSlips(el) {
+  const out = [];
+  if (typeof el.matches !== 'function' || !el.matches('.chapter-body')) return out;
+  const english = /^en\b/.test(writingLanguage());
+  for (const p of el.querySelectorAll('p:not(.poetry):not(.scene-break)')) {
+    // the paragraph's text, and which node holds each stretch of it
+    const segs = [];
+    let text = '';
+    const w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = w.nextNode())) {
+      if (n.parentElement && n.parentElement.closest('.ghost, .ph-mark')) continue;
+      segs.push({ node: n, at: text.length });
+      text += n.data;
+    }
+    if (!text.trim()) continue;
+    const seen = new Set();
+    const mark = (i) => {
+      if (seen.has(i)) return;
+      seen.add(i);
+      let s = segs[0];
+      for (const g of segs) if (g.at <= i) s = g; else break;
+      try {
+        const r = new Range();
+        r.setStart(s.node, i - s.at);
+        r.setEnd(s.node, i - s.at + 1);
+        out.push(r);
+      } catch { /* changed underneath us */ }
+    };
+    // the paragraph's first letter, past opening quotes, brackets and dashes
+    const lead = text.match(/^[\s"'“‘„«»(\[¿¡—–-]*/)[0].length;
+    if (/\p{Ll}/u.test(text[lead] || '') && !/^\p{Ll}\./u.test(text.slice(lead, lead + 2))) mark(lead);
+    // a letter after a full stop (not an ellipsis or an abbreviation)
+    const stop = /(?<!\.)\.\s+["'“‘„«(\[]?(\p{Ll})/gu;
+    let m;
+    while ((m = stop.exec(text))) {
+      const before = text.slice(0, m.index).match(/([\p{L}.]+)$/u);
+      const word = before ? before[1].toLowerCase() : '';
+      if (CAPS_ABBREV.has(word) || /^\p{L}$/u.test(word)) continue; // Mr. smith, J. r. r.
+      mark(m.index + m[0].length - 1);
+    }
+    // English "i", "i'm", "i'd" … standing alone (not "i.e." or "(i)")
+    if (english) {
+      const eye = /(?<![\p{L}\p{M}\d'’.(-])i(?![\p{L}\p{M}\d.)-])(?!['’](?![mdv]|ll|re))/gu;
+      while ((m = eye.exec(text))) mark(m.index);
+    }
+  }
+  return out;
 }
 
 function rebuildSpellHighlight() {
@@ -6581,10 +6651,12 @@ function toggleSpellcheck() {
   if (spellOn) {
     spellScanned = new Set();
     spellRanges = new Map();
+    capsRanges.clear();
     scanSpellingHere();
   } else {
     CSS.highlights.delete('neo-spell');
     spellRanges = new Map();
+    capsRanges.clear();
     document.querySelector('.spell-menu')?.remove();
   }
   toast(spellOn ? t('Spellcheck on') : t('Spellcheck off'));
@@ -6606,6 +6678,7 @@ async function changeSpellLanguage(code) {
   if (spellOn) {
     spellScanned = new Set();
     spellRanges = new Map();
+    capsRanges.clear();
     CSS.highlights.delete('neo-spell');
     scanSpellingHere();
   }
@@ -6621,6 +6694,28 @@ document.addEventListener('contextmenu', async (e) => {
   if (!pos || pos.startContainer.nodeType !== Node.TEXT_NODE) return;
   const node = pos.startContainer;
   const text = node.data;
+  // a capital slip (see capitalSlips): the letter's capital, and nothing to learn
+  let ws = pos.startOffset;
+  while (ws > 0 && /[\p{L}\p{M}]/u.test(text[ws - 1])) ws--;
+  for (const list of capsRanges.values()) {
+    const hit = list.find((r) => r.startContainer === node && r.startOffset === ws);
+    if (!hit) continue;
+    e.preventDefault();
+    const at = hit.startOffset;
+    const upper = text[at].toLocaleUpperCase(writingLanguage());
+    const chEl = editor.closest('.chapter');
+    showSpellMenu(e.clientX, e.clientY, text[at], [upper], {
+      replace: (s) => {
+        const sel = window.getSelection();
+        const r = document.createRange();
+        r.setStart(node, at); r.setEnd(node, at + 1);
+        sel.removeAllRanges(); sel.addRange(r);
+        document.execCommand('insertText', false, s);
+        if (chEl) spellScanEl(spellElFor(chEl.dataset.id), chEl.dataset.id);
+      }
+    });
+    return;
+  }
   const isW = (c) => /[\p{L}\p{M}'’]/u.test(c);
   let a = pos.startOffset, b = pos.startOffset;
   while (a > 0 && isW(text[a - 1])) a--;
@@ -6684,13 +6779,15 @@ function showSpellMenu(x, y, word, suggestions, actions) {
     none.disabled = true;
     menu.appendChild(none);
   }
-  const sep = document.createElement('div');
-  sep.className = 'sm-sep';
-  menu.appendChild(sep);
-  const learn = document.createElement('button');
-  learn.textContent = t('Add “{word}” to dictionary', { word });
-  learn.onclick = () => { menu.remove(); actions.learn(); };
-  menu.appendChild(learn);
+  if (actions.learn) {
+    const sep = document.createElement('div');
+    sep.className = 'sm-sep';
+    menu.appendChild(sep);
+    const learn = document.createElement('button');
+    learn.textContent = t('Add “{word}” to dictionary', { word });
+    learn.onclick = () => { menu.remove(); actions.learn(); };
+    menu.appendChild(learn);
+  }
   document.body.appendChild(menu);
   const r = menu.getBoundingClientRect();
   menu.style.left = Math.min(x, window.innerWidth - r.width - 10) + 'px';
@@ -7068,7 +7165,7 @@ function hourLabel(h) {
 function openStats() {
   const hasBook = !!book;
   const today = hasBook ? (book.dailyCounts || {})[todayStr()] : null;
-  const wordsToday = today ? today.end - today.start : 0;
+  const wordsToday = today ? Math.max(0, today.end - today.start) : 0;
   const total = hasBook ? bookWordCount() : 0;
   const bd = document.createElement('div');
   bd.className = 'modal-backdrop';
