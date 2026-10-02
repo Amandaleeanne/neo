@@ -2670,6 +2670,23 @@ function chapterStartBackspace(e, body, chId) {
   pre.selectNodeContents(body);
   try { pre.setEnd(r.startContainer, r.startOffset); } catch { return false; }
   if (pre.toString().length !== 0) return false; // caret isn't at the chapter's first character
+  // …and on its first line. Below an empty line, Backspace takes the empty
+  // line away and the paragraph moves up to the top of the chapter; it
+  // never reaches past it into the chapter above.
+  let el = r.startContainer.nodeType === Node.TEXT_NODE ? r.startContainer.parentElement : r.startContainer;
+  const block = el && el.closest ? el.closest('p') : null;
+  if (block && body.contains(block) && block !== body.firstElementChild) {
+    const above = block.previousElementSibling;
+    if (!above || above.tagName !== 'P' || above.classList.contains('scene-break') || above.classList.contains('ghost')) return false;
+    e.preventDefault();
+    snapshotStructure('empty line removed');
+    above.remove();
+    placeCaret(block, 0);
+    syncChapter(body, chId);
+    resetNativeUndo();
+    breakRun++;
+    return true;
+  }
   const idx = book.chapterOrder.indexOf(chId);
   if (idx <= 0) return false;
   const prevId = book.chapterOrder[idx - 1];
@@ -2906,6 +2923,15 @@ let enterRun = 0;
 let breakRun = 0;
 
 function splitChapterAt(body, chId, block, sel) {
+  // an empty line is no way to start a chapter, or end one: blank lines at
+  // the seam stay behind (the new chapter opens on its first words)
+  const blank = (p) => p && p.tagName === 'P' && !p.classList.contains('scene-break') && p.textContent.trim() === '' && !p.querySelector('.ph-mark');
+  while (blank(block) && block.nextElementSibling) {
+    const next = block.nextElementSibling;
+    block.remove();
+    block = next;
+  }
+  while (blank(block.previousElementSibling) && block.previousElementSibling.previousElementSibling) block.previousElementSibling.remove();
   const parts = [];
   let n = block;
   while (n) {
