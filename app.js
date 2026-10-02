@@ -3514,6 +3514,8 @@ function markdownEmphasis(e, body, range) {
   mdJustSet = { steps, key: e.key, block, end };
   return true;
 }
+// a key pressed on its own on the way to a shortcut
+const MODIFIER_KEYS = new Set(['Meta', 'Control', 'Shift', 'Alt', 'AltGraph', 'CapsLock', 'OS']);
 // A pasted line of Markdown as HTML with <b> and <i>, or null when it has
 // no emphasis (so ordinary text keeps pasting as text). Same rules as typing.
 function markdownInline(line) {
@@ -3528,6 +3530,7 @@ function markdownInline(line) {
 }
 // ⌘Z (Ctrl+Z) right after: the styling goes and the marks come back as typed
 document.addEventListener('keydown', (e) => {
+  if (MODIFIER_KEYS.has(e.key)) return; // the ⌘ or Ctrl of ⌘Z, on its way
   const just = mdJustSet;
   mdJustSet = null;
   if (!just || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ') return;
@@ -3573,6 +3576,7 @@ function dialogueDashKey(e, body) {
 }
 // ⌘Z (Ctrl+Z) right after: the hyphen comes back as typed
 document.addEventListener('keydown', (e) => {
+  if (MODIFIER_KEYS.has(e.key)) return; // the ⌘ or Ctrl of ⌘Z, on its way
   const just = dashJustSet;
   dashJustSet = null;
   if (!just || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ' || !just.block.isConnected) return;
@@ -3594,11 +3598,70 @@ function replaceBefore(n, text) {
   document.execCommand('insertText', false, text);
 }
 
+// Capitals as you type, in the manuscript: a sentence's first letter (at a
+// paragraph's start, or after a full stop that isn't an ellipsis or an
+// abbreviation; the same rules as capitalSlips) and, in English, "i" on its
+// own. ⌘Z (Ctrl+Z) right after keeps the lowercase. Poetry is left alone.
+let capJustSet = null; // the capital just set, for ⌘Z
+function autoCapKey(e, body) {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || e.keyCode === 229) return;
+  if (e.key.length !== 1 || !body.matches('.chapter-body')) return;
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !sel.getRangeAt(0).collapsed) return;
+  const range = sel.getRangeAt(0);
+  const start = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
+  const block = start && start.closest('p');
+  if (!block || !body.contains(block) || block.matches('.poetry, .scene-break')) return;
+  const pre = document.createRange();
+  pre.setStart(block, 0);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const before = pre.toString();
+  const lang = writingLanguage();
+  // a lowercase letter where a sentence starts
+  if (e.key !== e.key.toLocaleUpperCase(lang) && /\p{L}/u.test(e.key)) {
+    let starts = /^[\s"'“‘„«»(\[¿¡—–-]*$/.test(before);
+    if (!starts && /(?<!\.)\.\s+["'“‘„«(\[]?$/.test(before)) {
+      const word = (before.replace(/\.\s+["'“‘„«(\[]?$/, '.').match(/([\p{L}.]+)\.$/u) || [])[1] || '';
+      starts = !CAPS_ABBREV.has(word.toLowerCase()) && !/^\p{L}$/u.test(word);
+    }
+    if (!starts) return;
+    e.preventDefault();
+    const to = e.key.toLocaleUpperCase(lang);
+    document.execCommand('insertText', false, to);
+    capJustSet = { block, at: before.length, was: e.key, to, key: '' };
+    return;
+  }
+  // English: "i" standing alone becomes "I" once the next key shows it is
+  // a word (a space, punctuation, an apostrophe), and the key goes on as usual
+  if (/^en\b/.test(lang) && /^[\s,;:!?'’")”\]—–-]$/.test(e.key) && /(?:^|[^\p{L}\p{M}\d'’.(-])i$/u.test(before)) {
+    const at = before.length - 1;
+    selectChars(block, at, at + 1);
+    document.execCommand('insertText', false, 'I');
+    capJustSet = { block, at, was: 'i', to: 'I', key: e.key };
+  }
+}
+// ⌘Z (Ctrl+Z) right after: the lowercase comes back as typed
+document.addEventListener('keydown', (e) => {
+  if (MODIFIER_KEYS.has(e.key)) return; // the ⌘ or Ctrl of ⌘Z, on its way
+  const just = capJustSet;
+  capJustSet = null;
+  if (!just || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.code !== 'KeyZ' || !just.block.isConnected) return;
+  e.preventDefault();
+  e.stopPropagation();
+  selectChars(just.block, just.at, just.at + 1);
+  document.execCommand('insertText', false, just.was);
+  // a key typed after the "i" stays, with the caret past it
+  const caret = just.at + 1 + just.key.length;
+  selectChars(just.block, caret, caret);
+}, true);
+
 function smartKeys(e, body) {
   // a field can reach smartKeys twice (its own handler and the page-wide
   // one below): the first pass wins
   if (e.defaultPrevented) return;
   dialogueDashKey(e, body);
+  autoCapKey(e, body);
+  if (e.defaultPrevented) return;
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.isComposing || e.keyCode === 229) return;
 
@@ -4495,6 +4558,7 @@ function renderNav() {
     rowEl.addEventListener('dragend', finishChapterDrag);
     // right-click: what it is, or Delete
     item.addEventListener('contextmenu', (e) => {
+      if (IS_POCKET) { e.preventDefault(); return; } // on a phone this pane is for hopping
       if (e.target.closest('.nav-note[contenteditable="true"]')) return; // the note's own text menu
       e.preventDefault();
       chapterMenu(chId, e.clientX, e.clientY, rowEl);
