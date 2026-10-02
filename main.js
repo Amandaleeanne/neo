@@ -12,8 +12,12 @@ const os = require('os');
 // goes back to the page as before.
 {
   const handle = ipcMain.handle.bind(ipcMain);
-  ipcMain.handle = (channel, fn) => handle(channel, async (...args) => {
-    try { return await fn(...args); } catch (err) { reportBlockedWrite(err); throw err; }
+  ipcMain.handle = (channel, fn) => handle(channel, (...args) => {
+    // a handler's answer keeps its own timing: sync stays sync
+    let out;
+    try { out = fn(...args); } catch (err) { reportBlockedWrite(err); throw err; }
+    if (out && typeof out.then === 'function') out.catch((err) => reportBlockedWrite(err));
+    return out;
   });
 }
 
