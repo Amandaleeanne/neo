@@ -1234,7 +1234,7 @@ function createWindow() {
   }
   const win = new BrowserWindow({
     ...bounds,
-    minWidth: 800,
+    minWidth: 700,
     minHeight: 600,
     // the Mac's inset traffic lights. Only there: on Linux any title bar
     // style but the default leaves the window frameless, and on Wayland the
