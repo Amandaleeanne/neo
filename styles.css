@@ -155,6 +155,12 @@ button { font: inherit; cursor: pointer; }
 @font-face { font-family: 'Libre Bodoni'; src: url('fonts/libre-bodoni-latin-400-italic.otf') format('opentype'); font-weight: 400; font-style: italic; }
 @font-face { font-family: 'Libre Bodoni'; src: url('fonts/libre-bodoni-latin-700-normal.otf') format('opentype'); font-weight: 700; }
 @font-face { font-family: 'TeX Gyre Chorus'; src: url('fonts/texgyrechorus-latin-400-normal.otf') format('opentype'); font-weight: 400; }
+/* iA Writer Quattro (iA's own webfonts, unmodified: the license reserves the
+   name "iA Writer" for the originals) */
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-Regular.woff2') format('woff2'); font-weight: 400; }
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-Bold.woff2') format('woff2'); font-weight: 700; }
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-BoldItalic.woff2') format('woff2'); font-weight: 700; font-style: italic; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-400-normal.ttf') format('truetype'); font-weight: 400; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-400-italic.ttf') format('truetype'); font-weight: 400; font-style: italic; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-700-normal.ttf') format('truetype'); font-weight: 700; }

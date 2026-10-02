@@ -5547,7 +5547,9 @@ function updateCounters() {
       : t('ch. {ch}: {n} words', { ch: cur ? chapterNumber(cur) : 0, n });
   }
   const pos = $('#pos-counter');
-  pos.textContent = !cur
+  pos.textContent = library.posMode === 'page'
+    ? (cur ? t('page {p} of {total}', { p: currentPage(cur), total: pageCount(total) }) : t('{n} pages', { n: pageCount(total) }))
+    : !cur
     ? (numberedChapters() > 1 ? t('{n} chapters', { n: numberedChapters() }) : '')
     : cur === solo
       ? '' // a chapterless story needs no chapter locator
@@ -5614,6 +5616,33 @@ function trackDailyWords(total) {
     gc.classList.toggle('goal-met', goal > 0 && wordsToday >= goal);
   }
 }
+
+// Pages, the way a manuscript counts them: 250 words to a page. The page
+// the caret is on counts the story's words before it.
+const WORDS_PER_PAGE = 250;
+const pageCount = (words) => Math.max(1, Math.ceil(words / WORDS_PER_PAGE));
+function currentPage(cur) {
+  let before = 0;
+  for (const chId of book.chapterOrder) {
+    if (chId === cur) break;
+    if (isStory(chId)) before += chapterWords(chId);
+  }
+  const sel = window.getSelection();
+  const body = document.querySelector(`.chapter[data-id="${cur}"] .chapter-body`);
+  if (isStory(cur) && body && sel.rangeCount && body.contains(sel.anchorNode)) {
+    const r = document.createRange();
+    r.selectNodeContents(body);
+    r.setEnd(sel.anchorNode, sel.anchorOffset);
+    before += countWords(r.toString());
+  }
+  return Math.min(pageCount(bookWordCount()), Math.floor(before / WORDS_PER_PAGE) + 1);
+}
+// click: chapter of chapters ↔ page of pages
+$('#pos-counter').onclick = () => {
+  library.posMode = library.posMode === 'page' ? 'chapter' : 'page';
+  writeLibrary(library);
+  updateCounters();
+};
 
 $('#word-counter').onclick = () => {
   wordMode = wordMode === 'book' ? 'chapter' : 'book';
@@ -7254,15 +7283,17 @@ const BODY_FONTS = {
   'Cambria': 'Cambria, Georgia, serif',
   'Constantia': 'Constantia, Georgia, serif',
   // a sans-serif for those who write in one (bundled, so it's the same everywhere)
-  'Jost': '"Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif'
+  'Jost': '"Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif',
+  // iA Writer's own face, bundled too (SIL Open Font License)
+  'iA Writer Quattro': '"iA Writer Quattro", "Helvetica Neue", Arial, sans-serif'
 };
 
 // Hoefler Text and Iowan Old Style ship only with macOS; elsewhere they
 // would fall back to Georgia, so offer the fonts Windows actually has.
 // Keep in step with bodyFonts in main.js.
 const BODY_FONT_CHOICES = IS_MAC
-  ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style', 'Jost']
-  : ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia', 'Jost'];
+  ? ['Georgia', 'Palatino', 'Baskerville', 'Hoefler Text', 'Iowan Old Style', 'Jost', 'iA Writer Quattro']
+  : ['Georgia', 'Palatino', 'Baskerville', 'Cambria', 'Constantia', 'Jost', 'iA Writer Quattro'];
 
 function applyFonts() {
   const f = library.fonts || {};
@@ -9004,7 +9035,8 @@ const LINUX_BODY_FONTS = {
   'Libre Baskerville': '"Libre Baskerville", Baskerville, Georgia, serif',
   'Alegreya': '"Alegreya", "Hoefler Text", Georgia, serif',
   'Source Serif Pro': '"Source Serif Pro", "Iowan Old Style", Georgia, serif',
-  'Jost': '"Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif'
+  'Jost': '"Jost", "Avenir Next", "Helvetica Neue", Arial, sans-serif',
+  'iA Writer Quattro': '"iA Writer Quattro", "Helvetica Neue", Arial, sans-serif'
 };
 
 function installLinuxBodyFonts() {
@@ -9059,7 +9091,7 @@ function pressable(el, label) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
   });
 }
-for (const id of ['#author-chip', '#goal-counter', '#word-counter', '#zoom-level']) pressable($(id));
+for (const id of ['#author-chip', '#goal-counter', '#word-counter', '#pos-counter', '#zoom-level']) pressable($(id));
 
 // The mouse leaves nothing focused in the quiet chrome, as before these were
 // focusable: after a click on a book, a chapter row, a tab, a counter or a
