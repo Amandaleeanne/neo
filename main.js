@@ -1437,11 +1437,18 @@ function sendToWindow(msg) {
 // the Format menu's ticks: whether the caret is in a poetry paragraph, and
 // whether typewriter scrolling is on
 let poetryState = false;
+let flushState = false;
 let typewriterState = false;
 ipcMain.on('poetry:state', (_e, on) => {
   on = !!on;
   if (on === poetryState) return;
   poetryState = on;
+  try { buildMenu(); } catch (err) { logError('menu', err); }
+});
+ipcMain.on('flush:state', (_e, on) => {
+  on = !!on;
+  if (on === flushState) return;
+  flushState = on;
   try { buildMenu(); } catch (err) { logError('menu', err); }
 });
 ipcMain.on('typewriter:state', (_e, on) => {
@@ -1648,10 +1655,17 @@ function buildMenu() {
           click: () => sendToWindow({ type: 'typewriter' })
         },
         { type: 'separator' },
-        // ticks when the caret sits in a poetry paragraph; ⇧Enter is the
-        // editor's own key, so no accelerator here
+        // tick when the caret sits in one; the keys are the editor's own
+        // (they split or continue a paragraph, which a menu item can't), so
+        // they're named here without an accelerator
         {
-          label: t('Poetry Paragraph') + '\t⇧Enter',
+          label: t('Flush Paragraph') + '\t' + (isMac ? '⇧Enter' : 'Shift+Enter'),
+          type: 'checkbox',
+          checked: flushState,
+          click: () => sendToWindow({ type: 'flush' })
+        },
+        {
+          label: t('Poetry Paragraph') + '\t' + (isMac ? '⇧⌘Enter' : 'Ctrl+Shift+Enter'),
           type: 'checkbox',
           checked: poetryState,
           click: () => sendToWindow({ type: 'poetry' })

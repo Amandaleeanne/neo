@@ -336,9 +336,10 @@
     // messages the desktop menus do, and the tick marks come back here
     onMenu: (fn) => { window.pocketMenu = fn; },
     poetryState: (on) => { window.pocketState.poetry = !!on; },
+    flushState: (on) => { window.pocketState.flush = !!on; },
     typewriterState: (on) => { window.pocketState.typewriter = !!on; }
   };
-  window.pocketState = { poetry: false, typewriter: false };
+  window.pocketState = { poetry: false, flush: false, typewriter: false };
 
   // Interface language: the same locales/ files as the desktop, picked by
   // the device's language (regional file over its base, English beneath).

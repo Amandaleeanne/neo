@@ -225,7 +225,8 @@
         seg('Page', [['night', 'Night'], ['paper', 'Paper'], ['light', 'Light']], lib.pageTheme || 'night', (v) => ({ type: 'pageTheme', value: v })) +
         seg('Focus mode', [['off', 'Off'], ['paragraph', 'Paragraph'], ['sentence', 'Sentence']], focusNow, (v) => ({ type: 'focus', value: v })) +
         tick('Typewriter scrolling', st.typewriter, { type: 'typewriter' }) +
-        tick('Poetry paragraph  ⇧Enter', st.poetry, { type: 'poetry' }) +
+        tick('Flush paragraph  ⇧Enter', st.flush, { type: 'flush' }) +
+        tick('Poetry paragraph  Ctrl+⇧Enter', st.poetry, { type: 'poetry' }) +
         (window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'ios' ? '' :
           `<div class="pm-row"><span class="pm-label">On-screen keyboard</span><span class="pm-seg"><button data-act="keyboard">${window.pocketSoftKeyboardOn && !window.pocketSoftKeyboardOn() ? 'Off' : '✓ On'}</button></span></div>`) +
         (typeof book !== 'undefined' && book

@@ -688,6 +688,9 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-c
    The italic is real markup, laid in when the paragraph is made, so ⌘I
    takes it off any word the writer wants roman. */
 .chapter-body p.poetry { margin: 0 2.5em; text-indent: 0; }
+/* Flush paragraphs (⇧Enter): prose with no first-line indent — a report,
+   a list, an email inside the story */
+.chapter-body p.flush { text-indent: 0 !important; }
 /* a poetry paragraph is one italic; emphasis inside it stands upright, as
    typesetters set it (and as every export does, see paraRuns in app.js) */
 .chapter-body i i { font-style: normal; }
