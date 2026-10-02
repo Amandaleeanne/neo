@@ -473,7 +473,15 @@ function cleanChapterEl(id) {
   holder.querySelectorAll('.darling-anchor, .ph-mark, .ghost').forEach((n) => n.remove());
   return holder;
 }
-const chapterText = (id) => cleanChapterEl(id).innerText;
+// Text a line to each paragraph. innerText does that only for what is laid
+// out on screen: of a copy held aside, like the one above, it runs one
+// paragraph's last word into the next one's first ("end.Next"), and the two
+// count as one word. A range's toString runs them together the same way.
+function plainText(root) {
+  root.querySelectorAll('p, div, br').forEach((el) => el.after('\n'));
+  return root.textContent;
+}
+const chapterText = (id) => plainText(cleanChapterEl(id));
 
 // Word counts are cached per chapter and only recomputed for the chapter being edited.
 let wordCache = {};
@@ -5760,7 +5768,7 @@ function currentPage(cur) {
     const r = document.createRange();
     r.selectNodeContents(body);
     r.setEnd(sel.anchorNode, sel.anchorOffset);
-    before += countWords(r.toString());
+    before += countWords(plainText(r.cloneContents()));
   }
   return Math.min(pageCount(bookWordCount()), Math.floor(before / WORDS_PER_PAGE) + 1);
 }
@@ -5779,6 +5787,9 @@ $('#word-counter').onclick = () => {
 // select a passage → the counter reports its size
 document.addEventListener('selectionchange', () => {
   if (!book || currentTab !== 'manuscript') return;
+  // the recount a click asked for would cover the count of the word a
+  // double click goes on to select
+  clearTimeout(saveTimers.selcount);
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed) {
     let el = sel.anchorNode;
@@ -5791,7 +5802,6 @@ document.addEventListener('selectionchange', () => {
       }
     }
   }
-  clearTimeout(saveTimers.selcount);
   saveTimers.selcount = setTimeout(() => { if (book) updateCounters(); }, 150);
 });
 
