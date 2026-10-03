@@ -49,7 +49,7 @@ Mid-flow and need a name, a fact, a date? ⌘⇧X drops a mark and a sticky note
 
 **Outlining for plotters** 
 
-Outline chapters, scenes, and beats in the Outline tab. Tab on a chapter line makes a scene. Tab on an existing scene adds a beat; Tab on a scene line you just made with Enter turns it into a beat under the scene above. Shift+Tab moves a beat back to the scene level. Their notes appear in the manuscript as gray ghost paragraphs, ready to be overwritten. Scene breaks separate scenes, not beats, and ghost prompts never print. **Format → Merge beats upward when deleting a scene** (⌘⇧M / Ctrl+Shift+M) moves a deleted scene's beats to the scene above; if there isn't one, the prompts go with the scene and the chapter stays. Off by default. Pantsers can ignore all of it or learn to draw a freakin' map for the first time. Try it. You might like it!
+Outline chapters, scenes, and beats in the Outline tab. Tab on a chapter line makes a scene. Tab on an existing scene adds a beat; Tab on a scene line you just made with Enter turns it into a beat under the scene above. Shift+Tab moves a beat back to the scene level. Their notes appear in the manuscript as gray ghost paragraphs, ready to be overwritten. Scene breaks separate scenes, not beats, and ghost prompts never print. **Format → Merge beats upward when deleting a scene** (⌘⇧M / Ctrl+Shift+M) moves a deleted scene's beats to the scene above; if there isn't one, the prompts go with the scene and the chapter stays. Off by default.
 
 **Cover Art** 
 
