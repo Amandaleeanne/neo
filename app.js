@@ -26,7 +26,8 @@ function applyStaticI18n(root = document) {
     '--ph-add-title': t('add a title'),
     '--ph-write-freely': t('Write freely…'),
     '--ph-ol-chapter': t('What happens in this chapter…'),
-    '--ph-ol-section': t('What happens in this section…'),
+    '--ph-ol-section': t('What happens here…'),
+    '--ph-ol-beat': t('What happens here…'),
     '--ph-nav-note': t('What happens here…')
   };
   for (const [name, text] of Object.entries(cssHints)) {
@@ -5448,8 +5449,8 @@ function switchTab(name) {
 
 /* ================================================================== */
 /*  STRUCTURED OUTLINE                                                 */
-/*  Chapter lines are the book's real chapters. Section notes become   */
-/*  grayed "ghost" paragraphs in the manuscript                       */
+/*  Chapter lines are the book's real chapters. Scene and beat notes  */
+/*  become grayed "ghost" paragraphs in the manuscript                */
 /* ================================================================== */
 
 const secLetter = (i) => String.fromCharCode(65 + (i % 26));
@@ -5480,20 +5481,24 @@ function renderOutline(focusTarget) {
       book.chapterNotes[chId] || ''));
     (book.sectionNotes[chId] || []).forEach((sec, j) => {
       wrap.appendChild(outlineLine('section', chId, sec.id, j, secLetter(j), sec.text));
+      (sec.beats || []).forEach((beat, k) => {
+        wrap.appendChild(outlineLine('beat', chId, sec.id, k, roman(k + 1).toLowerCase(), beat.text, beat.id));
+      });
     });
   });
 
   const hint = document.createElement('div');
   hint.className = 'ol-hint';
-  hint.textContent = t('Enter — new chapter (or section, from a section line) · Tab — turn a fresh chapter line into a section · Shift+Tab — turn a section into a chapter · Backspace on an empty line removes it');
+  hint.textContent = t('Enter — new line · Tab — chapter to scene, or scene to beat · Shift+Tab — scene to chapter, or beat to scene · Backspace on an empty line removes it');
   wrap.appendChild(hint);
 
   if (focusTarget) {
-    const el = wrap.querySelector(
-      focusTarget.secId
+    const selector = focusTarget.beatId
+      ? `.ol-line[data-beat-id="${focusTarget.beatId}"] .ol-text`
+      : focusTarget.secId
         ? `.ol-line[data-sec-id="${focusTarget.secId}"] .ol-text`
-        : `.ol-line.ol-chapter[data-ch-id="${focusTarget.chId}"] .ol-text`
-    );
+        : `.ol-line.ol-chapter[data-ch-id="${focusTarget.chId}"] .ol-text`;
+    const el = wrap.querySelector(selector);
     if (el) {
       el.focus();
       const r = document.createRange();
@@ -5530,11 +5535,92 @@ function storyBefore(chId) {
   return null;
 }
 
-function outlineLine(kind, chId, secId, index, label, text) {
+let freshSceneId = null;
+
+function addBeat(chId, secId, index) {
+  const sec = (book.sectionNotes[chId] || []).find((s) => s.id === secId);
+  if (!sec) return;
+  sec.beats = sec.beats || [];
+  const beat = { id: 'beat-' + Date.now().toString(36), text: '' };
+  sec.beats.splice(index, 0, beat);
+  scheduleMetaSave();
+  syncGhosts(chId);
+  renderOutline({ beatId: beat.id });
+}
+
+function indentFreshScene(chId, secId) {
+  const list = book.sectionNotes[chId] || [];
+  const index = list.findIndex((s) => s.id === secId);
+  if (index <= 0) return false;
+
+  const scene = list[index];
+  const parent = list[index - 1];
+  const beat = { id: 'beat-' + Date.now().toString(36), text: scene.text };
+  const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  const paragraph = body && body.querySelector(`p[data-sec-id="${secId}"]`);
+  if (paragraph) {
+    paragraph.removeAttribute('data-sec-id');
+    paragraph.dataset.beatId = beat.id;
+  }
+  const sceneBreak = body && body.querySelector(`p.scene-break[data-sec-brk="${secId}"]`);
+  if (sceneBreak) sceneBreak.remove();
+
+  parent.beats = [...(parent.beats || []), beat, ...(scene.beats || [])];
+  list.splice(index, 1);
+  freshSceneId = null;
+  scheduleMetaSave();
+  syncGhosts(chId);
+  renderOutline({ beatId: beat.id });
+  return true;
+}
+
+function removeBeat(chId, secId, beatId, index) {
+  const sec = (book.sectionNotes[chId] || []).find((s) => s.id === secId);
+  if (!sec) return;
+  const beats = sec.beats || [];
+  const focus = beats.length > 1
+    ? { beatId: beats[index > 0 ? index - 1 : 1].id }
+    : { secId };
+  sec.beats = beats.filter((b) => b.id !== beatId);
+  scheduleMetaSave();
+  syncGhosts(chId);
+  renderOutline(focus);
+}
+
+function removeScene(chId, secId, index) {
+  const list = book.sectionNotes[chId] || [];
+  const scene = list[index];
+  if (!scene || scene.id !== secId) return;
+  const above = index > 0 ? list[index - 1] : null;
+  const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+  const focus = above ? { secId: above.id } : { chId };
+  const scenePara = body && body.querySelector(`p[data-sec-id="${secId}"]`);
+  if (scenePara && !scenePara.classList.contains('ghost')) scenePara.removeAttribute('data-sec-id');
+
+  if (library.mergeBeatsOnSceneDelete && scene.beats && scene.beats.length) {
+    if (above) {
+      above.beats = [...(above.beats || []), ...scene.beats];
+    }
+  }
+  if (!library.mergeBeatsOnSceneDelete || !above) {
+    for (const beat of scene.beats || []) {
+      const paragraph = body && body.querySelector(`p[data-beat-id="${beat.id}"]:not(.ghost)`);
+      if (paragraph) paragraph.removeAttribute('data-beat-id');
+    }
+  }
+
+  list.splice(index, 1);
+  scheduleMetaSave();
+  syncGhosts(chId);
+  renderOutline(focus);
+}
+
+function outlineLine(kind, chId, secId, index, label, text, beatId = null) {
   const line = document.createElement('div');
   line.className = 'ol-line ol-' + kind;
   line.dataset.chId = chId;
   if (secId) line.dataset.secId = secId;
+  if (beatId) line.dataset.beatId = beatId;
   const num = document.createElement('span');
   num.className = 'ol-num';
   num.textContent = label;
@@ -5549,16 +5635,20 @@ function outlineLine(kind, chId, secId, index, label, text) {
     const val = txt.textContent.trim();
     if (kind === 'chapter') {
       book.chapterNotes[chId] = val;
-    } else {
+    } else if (kind === 'section') {
       const sec = (book.sectionNotes[chId] || []).find((s) => s.id === secId);
       if (sec) sec.text = val;
+    } else {
+      const sec = (book.sectionNotes[chId] || []).find((s) => s.id === secId);
+      const beat = sec && (sec.beats || []).find((b) => b.id === beatId);
+      if (beat) beat.text = val;
     }
     scheduleMetaSave();
   };
 
   txt.addEventListener('blur', () => {
     save();
-    if (kind === 'section') syncGhosts(chId);
+    if (kind !== 'chapter') syncGhosts(chId);
     renderNav();
   });
 
@@ -5586,13 +5676,16 @@ function outlineLine(kind, chId, secId, index, label, text) {
         const at = book.chapterOrder.indexOf(chId) + (above ? 0 : 1);
         const newId = createChapterAt(at);
         renderOutline({ chId: newId });
-      } else {
+      } else if (kind === 'section') {
         const list = book.sectionNotes[chId];
         const newSec = { id: 'sec-' + Date.now().toString(36), text: '' };
         list.splice(index + (above ? 0 : 1), 0, newSec);
+        freshSceneId = newSec.id;
         scheduleMetaSave();
         syncGhosts(chId);
         renderOutline({ secId: newSec.id });
+      } else {
+        addBeat(chId, secId, index + (above ? 0 : 1));
       }
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -5610,11 +5703,18 @@ function outlineLine(kind, chId, secId, index, label, text) {
     }
     if (e.key === 'Tab' && !e.shiftKey) {
       e.preventDefault();
+      if (kind === 'section') {
+        save();
+        if (secId === freshSceneId && indentFreshScene(chId, secId)) return;
+        if (secId === freshSceneId) freshSceneId = null;
+        addBeat(chId, secId, ((book.sectionNotes[chId] || []).find((s) => s.id === secId)?.beats || []).length);
+        return;
+      }
       if (kind !== 'chapter') return;
       const prevCh = storyBefore(chId);
       if (!prevCh) { toast(t('The first line has to be a chapter')); return; }
       if (countWords(chapterText(chId)) > 0) {
-        toast(t('This chapter already has words in it — only empty chapter lines can become sections'));
+        toast(t('This chapter already has words in it — only empty chapter lines can become scenes'));
         return;
       }
       save();
@@ -5628,27 +5728,89 @@ function outlineLine(kind, chId, secId, index, label, text) {
     }
     if (e.key === 'Tab' && e.shiftKey) {
       e.preventDefault();
+      if (kind === 'beat') {
+        save();
+        const list = book.sectionNotes[chId] || [];
+        const parent = list.find((s) => s.id === secId);
+        if (!parent) return;
+        const beat = (parent.beats || []).find((b) => b.id === beatId);
+        if (!beat) return;
+        parent.beats = parent.beats.filter((b) => b.id !== beatId);
+        const newSec = { id: beat.id, text: beat.text };
+        list.splice(list.indexOf(parent) + 1, 0, newSec);
+        const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+        const written = body && body.querySelector(`p[data-beat-id="${beatId}"]:not(.ghost)`);
+        if (written) {
+          let prior = written.previousElementSibling;
+          let earlierText = false;
+          while (prior) {
+            if (prior.textContent.trim() && !prior.classList.contains('scene-break')) {
+              earlierText = true;
+              break;
+            }
+            prior = prior.previousElementSibling;
+          }
+          if (earlierText && !(written.previousElementSibling && written.previousElementSibling.classList.contains('scene-break'))) {
+            const brk = document.createElement('p');
+            brk.className = 'scene-break';
+            brk.textContent = '***';
+            written.before(brk);
+          }
+          written.removeAttribute('data-beat-id');
+          written.dataset.secId = newSec.id;
+        }
+        scheduleMetaSave();
+        syncGhosts(chId);
+        renderOutline({ secId: newSec.id });
+        return;
+      }
       if (kind !== 'section') return;
       save();
       const list = book.sectionNotes[chId];
       const sec = list.find((s) => s.id === secId);
+      if (!sec) return;
+      const beats = sec.beats || [];
+      const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
+      const writtenBeats = new Map(beats.map((beat) => {
+        const p = body && body.querySelector(`p[data-beat-id="${beat.id}"]:not(.ghost)`);
+        if (!p) return null;
+        const copy = p.cloneNode(true);
+        copy.removeAttribute('data-beat-id');
+        copy.dataset.secId = beat.id;
+        p.remove();
+        return [beat.id, copy.outerHTML];
+      }).filter(Boolean));
       list.splice(list.indexOf(sec), 1);
+      syncGhosts(chId);
       const at = book.chapterOrder.indexOf(chId) + 1;
       const newId = createChapterAt(at);
       book.chapterNotes[newId] = sec.text;
+      if (beats.length) {
+        book.sectionNotes[newId] = beats.map((beat) => ({ id: beat.id, text: beat.text }));
+        const content = [];
+        for (const beat of beats) {
+          const para = writtenBeats.get(beat.id) ||
+            (beat.text ? `<p class="ghost" data-sec-id="${beat.id}">${escHtml(beat.text)}</p>` : '');
+          if (!para) continue;
+          if (content.length) content.push(`<p class="scene-break" data-sec-brk="${beat.id}">***</p>`);
+          content.push(para);
+        }
+        chapterHTML[newId] = content.join('') || '<p><br></p>';
+        persistChapter(newId);
+        renderChapters();
+      }
       scheduleMetaSave();
-      syncGhosts(chId);
       renderOutline({ chId: newId });
     }
     if (e.key === 'Backspace' && txt.textContent.trim() === '') {
       e.preventDefault();
-      if (kind === 'section') {
+      if (kind === 'section' || kind === 'beat') {
         const list = book.sectionNotes[chId] || [];
-        const focus = focusAfterSectionRemoved(list, index, chId);
-        book.sectionNotes[chId] = list.filter((s) => s.id !== secId);
-        scheduleMetaSave();
-        syncGhosts(chId);
-        renderOutline(focus);
+        if (kind === 'section') {
+          removeScene(chId, secId, index);
+        } else {
+          removeBeat(chId, secId, beatId, index);
+        }
       } else if (book.chapterOrder.filter((c) => isStory(c)).length > 1 && countWords(chapterText(chId)) === 0) {
         const prevCh = storyBefore(chId) || book.chapterOrder.find((c) => c !== chId && isStory(c));
         deleteChapterQuiet(chId).then(() => renderOutline({ chId: prevCh }));
@@ -5663,15 +5825,15 @@ function outlineLine(kind, chId, secId, index, label, text) {
     if (kind === 'chapter') {
       await chapterMenu(chId, e.clientX, e.clientY, line);
     } else {
-      const choice = await optionModal(t('Delete this section?'), null,
-        [{ label: t('Delete section'), desc: t('Removes the outline line and its gray ghost from the manuscript. Written prose is never touched.'), danger: true, value: 'delete' }]);
+      const choice = await optionModal(
+        kind === 'beat' ? t('Delete this beat?') : t('Delete this scene?'), null,
+        [{ label: kind === 'beat' ? t('Delete beat') : t('Delete scene'), desc: t('Removes the outline line and its gray ghost from the manuscript. Written prose is never touched.'), danger: true, value: 'delete' }]);
       if (choice === 'delete') {
-        const list = book.sectionNotes[chId] || [];
-        const focus = focusAfterSectionRemoved(list, index, chId);
-        book.sectionNotes[chId] = list.filter((s) => s.id !== secId);
-        scheduleMetaSave();
-        syncGhosts(chId);
-        renderOutline(focus);
+        if (kind === 'beat') {
+          removeBeat(chId, secId, beatId, index);
+        } else {
+          removeScene(chId, secId, index);
+        }
       }
     }
   });
@@ -5681,14 +5843,15 @@ function outlineLine(kind, chId, secId, index, label, text) {
   return line;
 }
 
-// Push section notes into the manuscript as gray ghost paragraphs,
-// with real *** scene breaks between sections.
+// Push scene and beat notes into the manuscript as gray ghost paragraphs,
+// with real *** scene breaks between scenes and none between beats.
 // Once a ghost has been written over, it goes away.
 function syncGhosts(chId) {
   const body = document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`);
   if (!body) return;
   const list = (book.sectionNotes && book.sectionNotes[chId]) || [];
   const keep = new Set(list.map((s) => s.id));
+  const keepBeats = new Set(list.flatMap((s) => (s.beats || []).map((b) => b.id)));
 
   const breakFor = (secId) => body.querySelector(`p.scene-break[data-sec-brk="${secId}"]`);
 
@@ -5701,6 +5864,9 @@ function syncGhosts(chId) {
       p.remove();
     }
   });
+  body.querySelectorAll('p.ghost[data-beat-id]').forEach((p) => {
+    if (!keepBeats.has(p.dataset.beatId)) p.remove();
+  });
 
   // 2. Pull all still-ghost paragraphs out, then re-append in outline order
   //    so the ghosts always mirror the outline's sequence
@@ -5709,25 +5875,42 @@ function syncGhosts(chId) {
     if (brk) brk.remove();
     p.remove();
   }
+  body.querySelectorAll('p.ghost[data-beat-id]').forEach((p) => p.remove());
   for (const sec of list) {
-    // written over already? Leave it alone
-    const written = body.querySelector(`p[data-sec-id="${sec.id}"]:not(.ghost)`);
-    if (written) continue;
-    if (!sec.text) continue;
-    // *** between this ghost and whatever comes before it
-    const hasContent = body.innerText.trim() !== '';
-    if (hasContent && !(body.lastElementChild && body.lastElementChild.classList.contains('scene-break'))) {
-      const brk = document.createElement('p');
-      brk.className = 'scene-break';
-      brk.dataset.secBrk = sec.id;
-      brk.textContent = '***';
-      body.appendChild(brk);
+    let scene = body.querySelector(`p[data-sec-id="${sec.id}"]`);
+    if (!scene && sec.text) {
+      // *** between this scene and whatever comes before it
+      const hasContent = body.innerText.trim() !== '';
+      if (hasContent && !(body.lastElementChild && body.lastElementChild.classList.contains('scene-break'))) {
+        const brk = document.createElement('p');
+        brk.className = 'scene-break';
+        brk.dataset.secBrk = sec.id;
+        brk.textContent = '***';
+        body.appendChild(brk);
+      }
+      scene = document.createElement('p');
+      scene.className = 'ghost';
+      scene.dataset.secId = sec.id;
+      scene.textContent = sec.text;
+      body.appendChild(scene);
     }
-    const p = document.createElement('p');
-    p.className = 'ghost';
-    p.dataset.secId = sec.id;
-    p.textContent = sec.text;
-    body.appendChild(p);
+    let anchor = scene;
+    for (const beat of sec.beats || []) {
+      const written = body.querySelector(`p[data-beat-id="${beat.id}"]:not(.ghost)`);
+      if (written) { anchor = written; continue; }
+      if (!beat.text) continue;
+      const p = document.createElement('p');
+      p.className = 'ghost';
+      p.dataset.beatId = beat.id;
+      p.textContent = beat.text;
+      if (anchor) {
+        anchor.after(p);
+        anchor = p;
+      } else {
+        body.appendChild(p);
+        anchor = p;
+      }
+    }
   }
   syncChapter(body, chId);
 }
@@ -7997,6 +8180,7 @@ function shortcutSections() {
       [K('⌘⇧U', 'Ctrl+Shift+U'), tk('Read aloud from the cursor'), tk('Again, Esc or any key stops it. Uses your computer’s own voice.')]
     ] },
     { title: tk('Formatting'), rows: [
+      [K('⌘⇧M', 'Ctrl+Shift+M'), tk('Merge beats upward when deleting a scene'), tk('If there is no scene above, the scene and its beats are removed; the chapter stays.')],
       [['*…*', '**…**', '***…***'], tk('Italic, bold, the Markdown way'), tk('Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.')],
       [K('⌘U', 'Ctrl+U'), tk('Underline')],
       [K('⌘⇧S', 'Ctrl+Shift+S'), tk('Strikethrough'), tk('Or ~~…~~ around the words.')],
@@ -8133,8 +8317,8 @@ function safeName(s) {
 function parasFromHtml(html) {
   const holder = document.createElement('div');
   holder.innerHTML = html || '';
-  // an unwritten outline section is a ghost paragraph plus the scene break
-  // NEO planted for it; neither belongs in a book
+  // Unwritten scene and beat notes are ghosts; a scene's associated break
+  // also stays out of the book until the scene has been written.
   holder.querySelectorAll('p.ghost[data-sec-id]').forEach((g) => {
     const brk = holder.querySelector(`p.scene-break[data-sec-brk="${g.dataset.secId}"]`);
     if (brk) brk.remove();
@@ -9458,6 +9642,10 @@ window.neo.onMenu(async (msg) => {
     if (msg.checked) delete library.markdownOff; else library.markdownOff = true;
     await writeLibrary(library);
     toast(msg.checked ? t('Markdown emphasis on: *italic*, **bold**') : t('Markdown emphasis off: asterisks stay asterisks'));
+  }
+  if (msg.type === 'mergeBeatsOnSceneDelete') {
+    library.mergeBeatsOnSceneDelete = !!msg.checked;
+    await writeLibrary(library);
   }
   if (msg.type === 'exportCustomChapterTitles') {
     library.exportCustomChapterTitles = msg.checked;

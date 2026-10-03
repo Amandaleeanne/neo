@@ -1738,6 +1738,13 @@ function buildMenu() {
           checked: typewriterState,
           click: () => sendToWindow({ type: 'typewriter' })
         },
+        {
+          label: t('Merge beats upward when deleting a scene'),
+          accelerator: 'CmdOrCtrl+Shift+M',
+          type: 'checkbox',
+          checked: !!readJSON(LIBRARY_FILE, {}).mergeBeatsOnSceneDelete,
+          click: (item) => sendToWindow({ type: 'mergeBeatsOnSceneDelete', checked: item.checked })
+        },
         { type: 'separator' },
         // tick when the caret sits in one; the keys are the editor's own
         // (they split or continue a paragraph, which a menu item can't), so

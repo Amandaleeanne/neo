@@ -822,6 +822,7 @@ body.vim-nav .chapter-body, body.vim-nav #aux-editor { caret-color: var(--accent
 }
 .ol-chapter { margin-top: 18px; }
 .ol-section { margin-left: 40px; }
+.ol-beat { margin-left: 80px; }
 .ol-num {
   font-family: var(--body-font); color: #8d8778; min-width: 24px; text-align: right;
   user-select: none; flex-shrink: 0;
@@ -834,7 +835,8 @@ body.vim-nav .chapter-body, body.vim-nav #aux-editor { caret-color: var(--accent
 .ol-text:focus { border-bottom-color: #d8d2c2; }
 .ol-text:empty::before { color: #b9b4a8; font-style: italic; }
 .ol-chapter .ol-text:empty::before { content: var(--ph-ol-chapter, 'What happens in this chapter…'); }
-.ol-section .ol-text:empty::before { content: var(--ph-ol-section, 'What happens in this section…'); }
+.ol-section .ol-text:empty::before { content: var(--ph-ol-section, 'What happens here…'); }
+.ol-beat .ol-text:empty::before { content: var(--ph-ol-beat, 'What happens here…'); }
 .ol-part { margin-top: 26px; }
 .ol-part .ol-num { font-weight: 700; color: #6b6455; }
 .ol-part-name {
@@ -850,6 +852,9 @@ body.night .ol-part .ol-num, body.night .ol-part-name { color: #918b7d; }
 /* Ghost paragraphs: outline notes waiting in the manuscript to become prose */
 .chapter-body p.ghost {
   color: #a9a294; font-style: italic; text-indent: 0 !important;
+}
+.chapter-body p.ghost[data-beat-id] {
+  margin-left: 1.25em; font-size: 0.92em; opacity: 0.72;
 }
 .chapter-body p.ghost::first-letter { font-size: inherit; float: none; padding: 0; }
 
