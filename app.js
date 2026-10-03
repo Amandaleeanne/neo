@@ -2457,7 +2457,10 @@ function wireChapterBody(body, chId) {
   body.addEventListener('compositionstart', () => { composing = true; });
   body.addEventListener('compositionend', () => { composing = false; });
   body.addEventListener('keydown', (e) => {
-    if (composing || e.isComposing || e.keyCode === 229) return;
+    // An input method mid-word owns the keys. Its marker (keyCode 229) also
+    // rides on Enter with nothing being composed, as on GNOME (Wayland, IBus),
+    // where it kept ⇧Enter and ⌘⇧Enter from ever reaching NEO.
+    if (composing || e.isComposing || (e.keyCode === 229 && e.key !== 'Enter')) return;
     // count consecutive Enters — the double/triple rhythm works mid-sentence
     if (e.key === 'Enter' && !e.shiftKey) enterRun++;
     else enterRun = 0;
@@ -2510,6 +2513,14 @@ function wireChapterBody(body, chId) {
       s.removeAllRanges();
       s.addRange(r);
     }
+  });
+  // A line break the engine is about to make on its own is ⇧Enter that the
+  // keys above never saw (an input method can carry it past them): it
+  // becomes the flush paragraph ⇧Enter makes, or the next line of a poem.
+  body.addEventListener('beforeinput', (e) => {
+    if (e.inputType !== 'insertLineBreak' || e.defaultPrevented) return;
+    const key = { key: 'Enter', shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, preventDefault: () => e.preventDefault() };
+    if (!handlePoetry(key, body, chId)) handleFlush(key, body, chId);
   });
   // the moment writing hits a ghost, it becomes prose
   // (it keeps its data-sec-id so the outline knows it's been written)
@@ -2620,6 +2631,46 @@ function styleKeepScroll(e) {
   requestAnimationFrame(() => { sc.scrollTop = keep; });
   return true;
 }
+
+// A click on the page's empty space puts the caret where it means: below
+// the text, at the end of that chapter; in the margin beside a line, on that
+// line; above the first line, at the start. Margins, the space under the
+// last line, the gaps between chapters and the dark room around the pages
+// all count.
+function caretFromEmptyClick(e) {
+  if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!book || currentTab !== 'manuscript') return;
+  const t = e.target;
+  if (!t || !t.closest || t.closest('[contenteditable="true"], input, textarea, button, a, .pop-menu, .ph-mark, #title-page')) return;
+  if (t.closest('.chapter-head') && t !== t.closest('.chapter-head')) return; // its number and title answer clicks themselves
+  if (!(t.matches('.chapter, .chapter-head, #chapters, #paper, #paper-scroll, #editor-view'))) return;
+  // the chapter whose page this is, or the one just above a gap
+  let sec = t.closest('.chapter');
+  if (!sec) {
+    for (const c of document.querySelectorAll('#chapters .chapter')) {
+      if (c.getBoundingClientRect().top <= e.clientY) sec = c; else break;
+    }
+  }
+  if (!sec) return;
+  const body = sec.querySelector('.chapter-body');
+  if (!body || !body.isContentEditable) return;
+  const box = body.getBoundingClientRect();
+  const chId = sec.dataset.id;
+  e.preventDefault();
+  if (e.clientY < box.top) { focusChapterStart(chId); return; }
+  if (e.clientY > box.bottom) { focusChapter(chId); return; }
+  const x = Math.min(Math.max(e.clientX, box.left + 2), box.right - 2);
+  const r = document.caretRangeFromPoint(x, e.clientY);
+  if (!r || !body.contains(r.startContainer)) { focusChapter(chId); return; }
+  body.focus({ preventScroll: true });
+  const s = window.getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+  currentChapterId = chId;
+  highlightNav();
+  updateCounters();
+}
+$('#editor-view').addEventListener('mousedown', caretFromEmptyClick);
 
 // ⌥⌘↓ / ⌥⌘↑ (Ctrl+Alt on Windows and Linux): the start of the next or the
 // previous chapter, without opening the pane
