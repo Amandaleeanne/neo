@@ -13,6 +13,8 @@
     "test": "node --test \"scripts/*.test.js\"",
     "test:coverage": "node --test --experimental-test-coverage \"scripts/*.test.js\"",
     "lint": "oxlint",
+    "release": "node scripts/release.js",
+    "bundle": "node scripts/bundle.js",
     "package": "npm run package:mac",
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win",
