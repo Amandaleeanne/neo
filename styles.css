@@ -585,6 +585,8 @@ body.night #aux-editor * { color: inherit; }
 /* Search highlights — no DOM mutation, no focus theft */
 ::highlight(neo-search) { background: rgba(201, 168, 106, 0.35); }
 ::highlight(neo-search-current) { background: #c9a86a; color: #1c1c1c; }
+/* the sentence Read Aloud is on (⌘⇧U) */
+::highlight(neo-speak) { background: rgba(201, 168, 106, 0.28); }
 
 /* Each page of the book is its own sheet of paper */
 #paper {

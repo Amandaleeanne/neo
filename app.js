@@ -2645,12 +2645,15 @@ function emptyChapterBackspace(e, body, chId) {
 // selection "into view" and mis-measures NEO's transformed page column,
 // throwing the reader to the top of the screen. Style, don't scroll.
 function styleKeepScroll(e) {
-  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return false;
-  if (e.code !== 'KeyB' && e.code !== 'KeyI') return false;
+  if (!(e.metaKey || e.ctrlKey) || e.altKey) return false;
+  const cmd = e.shiftKey
+    ? (e.code === 'KeyS' ? 'strikeThrough' : null)
+    : ({ KeyB: 'bold', KeyI: 'italic', KeyU: 'underline' })[e.code];
+  if (!cmd) return false;
   e.preventDefault();
   const sc = $('#paper-scroll');
   const keep = sc.scrollTop;
-  document.execCommand(e.code === 'KeyB' ? 'bold' : 'italic');
+  document.execCommand(cmd);
   sc.scrollTop = keep;
   requestAnimationFrame(() => { sc.scrollTop = keep; });
   return true;
@@ -3555,6 +3558,7 @@ function cleanPasteHtml(html, dashes) {
     const ital = (st.fontStyle || '').toLowerCase() === 'italic';
     if (bold) { const b = document.createElement('b'); while (sp.firstChild) b.appendChild(sp.firstChild); sp.appendChild(b); }
     if (ital) { const i = document.createElement('i'); while (sp.firstChild) i.appendChild(sp.firstChild); sp.appendChild(i); }
+    // (underline and strikethrough in a style are read by paraRuns)
   });
   // a break marker at every block edge and every line break
   const BREAK = '\uE000';
@@ -3571,7 +3575,7 @@ function cleanPasteHtml(html, dashes) {
     const pieces = r.text.split(BREAK);
     pieces.forEach((text, i) => {
       if (i > 0) paras.push([]);
-      if (text) paras[paras.length - 1].push({ text, b: r.b, i: r.i });
+      if (text) paras[paras.length - 1].push({ text, b: r.b, i: r.i, u: r.u, s: r.s });
     });
   }
   const filled = paras.map((runs) => runs.some((r) => r.mark === undefined && r.text.trim()));
@@ -3598,10 +3602,7 @@ function cleanPasteHtml(html, dashes) {
           : '';
       }
       if (!r.text) return '';
-      let t = escHtml(r.text);
-      if (r.i) t = '<i>' + t + '</i>';
-      if (r.b) t = '<b>' + t + '</b>';
-      return t;
+      return runHtml(r);
     }).join('');
     return inner.replace(/<[^>]+>/g, '').trim() ? '<p>' + inner + '</p>' : '';
   }).filter(Boolean);
@@ -3667,7 +3668,36 @@ function selectChars(el, from, to) {
   sel.addRange(r);
 }
 let mdJustSet = null; // what was just turned into styling, for ⌘Z
+// ~~struck~~ as it's typed: the second closing ~ strikes the words through
+function markdownStrike(e, body, range) {
+  if (library && library.markdownOff) return false;
+  if (e.key !== '~' || !range.collapsed) return false;
+  if (!body.matches || !body.matches('.chapter-body, #aux-editor')) return false;
+  const start = range.startContainer.nodeType === Node.TEXT_NODE ? range.startContainer.parentElement : range.startContainer;
+  const block = (start && start.closest('p, div, li')) || body;
+  if (!body.contains(block)) return false;
+  const pre = document.createRange();
+  pre.setStart(block, 0);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const before = pre.toString();
+  const m = before.match(/(^|[^~\\])~~(?![\s~])(.*?[^\s\\~])~$/u);
+  if (!m) return false;
+  e.preventDefault();
+  const end = before.length;
+  const at = end - m[0].length + m[1].length; // where the opening ~~ sits
+  let steps = 0;
+  selectChars(block, end - 1, end); document.execCommand('delete'); steps++;
+  selectChars(block, at, at + 2); document.execCommand('delete'); steps++;
+  const innerEnd = end - 3;
+  selectChars(block, at, innerEnd);
+  if (!document.queryCommandState('strikeThrough')) { document.execCommand('strikeThrough'); steps++; }
+  selectChars(block, innerEnd, innerEnd);
+  if (document.queryCommandState('strikeThrough')) document.execCommand('strikeThrough');
+  mdJustSet = { steps, key: e.key, block, end: innerEnd + 3 };
+  return true;
+}
 function markdownEmphasis(e, body, range) {
+  if (markdownStrike(e, body, range)) return true;
   if (library && library.markdownOff) return false;
   if (e.key !== '*' && e.key !== '_') return false;
   if (!body.matches || !body.matches('.chapter-body, #aux-editor')) return false;
@@ -3713,6 +3743,7 @@ function markdownInline(line) {
   html = html.replace(new RegExp(`${edge}(\\*\\*\\*|___)(?!\\s)(.+?)(?<![\\s\\\\])\\2${tail}`, 'gu'), '$1<b><i>$3</i></b>');
   html = html.replace(new RegExp(`${edge}(\\*\\*|__)(?!\\s)(.+?)(?<![\\s\\\\])\\2${tail}`, 'gu'), '$1<b>$3</b>');
   html = html.replace(new RegExp(`${edge}(\\*|_)(?![\\s*_])(.+?)(?<![\\s\\\\*_])\\2${tail}`, 'gu'), '$1<i>$3</i>');
+  html = html.replace(/(^|[^~\\])~~(?![\s~])(.+?)(?<![\s\\~])~~(?!~)/gu, '$1<s>$2</s>');
   return html === before ? null : html;
 }
 // ⌘Z (Ctrl+Z) right after: the styling goes and the marks come back as typed
@@ -6315,6 +6346,7 @@ window.addEventListener('blur', () => { if (book) flushAllSaves(); });
 setInterval(() => { if (book) flushAllSaves('tick'); }, 20000);
 
 async function backToShelf() {
+  if (reading) stopReadAloud(false);
   flushAllSaves();
   tabPlaces = {};
   book = null;
@@ -6557,6 +6589,177 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   structuralUndo();
 });
+
+/* ================================================================== */
+/*  READ ALOUD — ⌘⇧U (Ctrl+Shift+U)                                    */
+/*  The computer's own voice reads from the caret, a sentence at a      */
+/*  time, each one lit as it's read, on into the chapters after. ⌘⇧U   */
+/*  again, Esc or a keystroke stops it, and the caret is left at the    */
+/*  sentence it reached, so ⌘⇧U carries on from there. No keys, no      */
+/*  cloud: the voices that come with macOS and Windows.                 */
+/* ================================================================== */
+
+let reading = null; // { item, gen } while the voice is going
+let readGen = 0;
+
+function readVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  const lang = writingLanguage().toLowerCase();
+  const base = lang.split('-')[0];
+  const by = (f) => voices.find(f);
+  return by((v) => v.lang.toLowerCase().replace('_', '-') === lang && v.default) ||
+    by((v) => v.lang.toLowerCase().replace('_', '-') === lang) ||
+    by((v) => v.lang.toLowerCase().startsWith(base) && v.localService) ||
+    by((v) => v.lang.toLowerCase().startsWith(base)) ||
+    by((v) => v.default) || voices[0] || null;
+}
+async function readVoicesReady() {
+  if (window.speechSynthesis.getVoices().length) return true;
+  await new Promise((resolve) => {
+    const done = () => resolve();
+    window.speechSynthesis.addEventListener('voiceschanged', done, { once: true });
+    setTimeout(done, 1500);
+  });
+  return window.speechSynthesis.getVoices().length > 0;
+}
+
+// The paragraphs to read, from one, in order: the rest of its editor, then
+// (in the manuscript) the chapters after it
+function readParasFrom(p) {
+  const out = [];
+  const editor = p.closest('.chapter-body, #aux-editor');
+  const ok = (q) => q.tagName === 'P' && !q.classList.contains('scene-break') && !q.classList.contains('ghost');
+  const take = (root, from) => {
+    let on = !from;
+    for (const q of root.querySelectorAll('p')) {
+      if (q === from) on = true;
+      if (on && ok(q)) out.push(q);
+    }
+  };
+  take(editor, p);
+  if (editor.matches('.chapter-body')) {
+    const bodies = [...document.querySelectorAll('#chapters .chapter-body')];
+    for (const b of bodies.slice(bodies.indexOf(editor) + 1)) take(b, null);
+  }
+  return out;
+}
+// a paragraph's sentences, as character spans of its text, from an offset
+function readSentences(p, from) {
+  const text = p.textContent;
+  const spans = [];
+  if (window.Intl && Intl.Segmenter) {
+    const seg = new Intl.Segmenter(writingLanguage(), { granularity: 'sentence' });
+    for (const s of seg.segment(text)) spans.push([s.index, s.index + s.segment.length]);
+  } else spans.push([0, text.length]);
+  return spans
+    .map(([a, b]) => [Math.max(a, from), b])
+    .filter(([a, b]) => b > a && text.slice(a, b).trim());
+}
+function readRange(p, a, b) {
+  const s = pointAt(p, a), e = pointAt(p, b);
+  if (!s || !e) return null;
+  const r = document.createRange();
+  r.setStart(s.node, s.offset);
+  r.setEnd(e.node, e.offset);
+  return r;
+}
+
+async function toggleReadAloud() {
+  if (reading) { stopReadAloud(true); return; }
+  if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) { toast(t('Read aloud needs a voice on this computer')); return; }
+  const sel = window.getSelection();
+  let el = sel.rangeCount ? sel.anchorNode : null;
+  if (el && el.nodeType === Node.TEXT_NODE) el = el.parentElement;
+  let p = el && el.closest ? el.closest('.chapter-body p, #aux-editor p') : null;
+  let from = 0;
+  if (p) {
+    const pre = document.createRange();
+    pre.selectNodeContents(p);
+    pre.setEnd(sel.anchorNode, sel.anchorOffset);
+    from = pre.toString().length;
+  } else {
+    // no caret in the text: from the top of the chapter on screen
+    const body = currentTab === 'manuscript'
+      ? document.querySelector(`.chapter[data-id="${currentChapterId || (book && book.chapterOrder[0])}"] .chapter-body`)
+      : $('#aux-editor');
+    p = body && body.querySelector('p');
+  }
+  if (!p) return;
+  if (!(await readVoicesReady())) { toast(t('Read aloud needs a voice on this computer')); return; }
+  const paras = readParasFrom(p);
+  // start at the beginning of the sentence the caret is in
+  const first = readSentences(p, 0).find(([a, b]) => from >= a && from < b);
+  if (first) from = first[0];
+  const gen = ++readGen;
+  reading = { gen, item: null };
+  const queue = function* () {
+    for (const [n, q] of paras.entries()) {
+      for (const [a, b] of readSentences(q, n === 0 && q === p ? from : 0)) yield { p: q, a, b };
+    }
+  }();
+  const voice = readVoice();
+  const next = () => {
+    if (!reading || reading.gen !== gen) return;
+    const { value: item, done } = queue.next();
+    if (done || !item.p.isConnected) { stopReadAloud(false); return; }
+    reading.item = item;
+    const u = new SpeechSynthesisUtterance(item.p.textContent.slice(item.a, item.b).trim());
+    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = writingLanguage();
+    u.onstart = () => {
+      if (!reading || reading.gen !== gen) return;
+      const r = readRange(item.p, item.a, item.b);
+      if (!r || !window.Highlight || !CSS.highlights) return;
+      CSS.highlights.set('neo-speak', new Highlight(r));
+      // keep the sentence on screen
+      const sc = $('#paper-scroll');
+      const box = r.getBoundingClientRect();
+      const view = sc.getBoundingClientRect();
+      if (box.top < view.top + 40 || box.bottom > view.bottom - 60) {
+        sc.scrollTop += box.top - view.top - view.height / 3;
+      }
+    };
+    u.onend = () => next();
+    u.onerror = (ev) => { if (ev.error !== 'interrupted' && ev.error !== 'canceled') stopReadAloud(false); };
+    window.speechSynthesis.speak(u);
+  };
+  window.speechSynthesis.cancel();
+  next();
+}
+// leaveCaret: the writer stopped it, so the caret goes to the sentence reached
+function stopReadAloud(leaveCaret) {
+  const was = reading;
+  reading = null;
+  readGen++;
+  try { window.speechSynthesis.cancel(); } catch { /* nothing speaking */ }
+  if (window.CSS && CSS.highlights) CSS.highlights.delete('neo-speak');
+  if (leaveCaret && was && was.item && was.item.p.isConnected) {
+    const ed = was.item.p.closest('.chapter-body, #aux-editor');
+    const pt = pointAt(was.item.p, was.item.a);
+    if (ed && pt) {
+      ed.focus({ preventScroll: true });
+      const s = window.getSelection();
+      s.removeAllRanges();
+      const r = document.createRange();
+      r.setStart(pt.node, pt.offset);
+      r.collapse(true);
+      s.addRange(r);
+    }
+  }
+}
+document.addEventListener('keydown', (e) => {
+  const cmd = e.metaKey || e.ctrlKey;
+  if (cmd && e.shiftKey && !e.altKey && e.code === 'KeyU') {
+    if (!book || $('#editor-view').hidden) return;
+    e.preventDefault();
+    e.stopPropagation();
+    toggleReadAloud();
+    return;
+  }
+  if (!reading || MODIFIER_KEYS.has(e.key)) return;
+  // Esc stops the voice and nothing else; any other key stops it and goes on
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
+  stopReadAloud(e.key === 'Escape');
+}, true);
 
 /* ================================================================== */
 /*  FIND & REPLACE                                                     */
@@ -7790,10 +7993,13 @@ function shortcutSections() {
       [K('⇧Enter', 'Shift+Enter'), tk('A paragraph with no indent'), tk('Again for another; Enter goes back to prose.')],
       [K('⌘⇧Enter', 'Ctrl+Shift+Enter'), tk('Start or continue a poetry paragraph'), tk('Also works from a chapter heading.')],
       [KPH, tk('Insert a placeholder note')],
-      [KDA, tk('Move selected text to Darlings')]
+      [KDA, tk('Move selected text to Darlings')],
+      [K('⌘⇧U', 'Ctrl+Shift+U'), tk('Read aloud from the cursor'), tk('Again, Esc or any key stops it. Uses your computer’s own voice.')]
     ] },
     { title: tk('Formatting'), rows: [
       [['*…*', '**…**', '***…***'], tk('Italic, bold, the Markdown way'), tk('Typed around a word (or pasted). Undo right after keeps the asterisks. Format → Markdown Emphasis turns it off.')],
+      [K('⌘U', 'Ctrl+U'), tk('Underline')],
+      [K('⌘⇧S', 'Ctrl+Shift+S'), tk('Strikethrough'), tk('Or ~~…~~ around the words.')],
       [K('⌘⇧L', 'Ctrl+Shift+L'), tk('Align paragraph left')],
       [K('⌘⇧C', 'Ctrl+Shift+C'), tk('Center paragraph')],
       [K('⌘⇧R', 'Ctrl+Shift+R'), tk('Align paragraph right')],
@@ -7940,12 +8146,7 @@ function parasFromHtml(html) {
     const flush = !poetry && p.classList.contains('flush');
     const align = (p.style && p.style.textAlign) || '';
     const runs = paraRuns(p.innerHTML, true).filter((r) => r.text);
-    const inner = runs.map((r) => {
-      let t = escHtml(r.text);
-      if (r.i) t = '<i>' + t + '</i>';
-      if (r.b) t = '<b>' + t + '</b>';
-      return t;
-    }).join('');
+    const inner = runs.map((r) => runHtml(r)).join('');
     return {
       sceneBreak,
       poetry,
@@ -8076,13 +8277,17 @@ function buildMd(data) {
   const mdMeta = (s) => String(s || '').replace(/([\\`*_\[\]#<>])/g, '\\$1');
   // wrap a run in emphasis markers, keeping boundary spaces outside them
   const mdRun = (r) => {
-    let t = r.text.replace(/([\\*_`])/g, '\\$1');
+    let t = r.text.replace(/([\\*_`~])/g, '\\$1');
     const mark = r.b && r.i ? '***' : r.b ? '**' : r.i ? '*' : '';
-    if (!mark) return t;
+    if (!mark && !r.s && !r.u) return t;
     const lead = t.match(/^\s*/)[0];
     const trail = t.match(/\s*$/)[0];
-    const core = t.slice(lead.length, t.length - trail.length);
-    return core ? lead + mark + core + mark + trail : t;
+    let core = t.slice(lead.length, t.length - trail.length);
+    if (!core) return t;
+    // Markdown has strikethrough; underline goes as HTML, which it allows
+    if (r.s) core = '~~' + core + '~~';
+    if (r.u) core = '<u>' + core + '</u>';
+    return lead + mark + core + mark + trail;
   };
   let out = `# ${mdMeta(d.title)}\n\n`;
   if (d.subtitle) out += `*${mdMeta(d.subtitle)}*\n\n`;
@@ -8325,14 +8530,23 @@ const escXml = (s) => String(s)
 // In the manuscript an italic inside an italic is emphasis in a poetry
 // paragraph (itself one italic), and it is set upright, the typesetter's
 // way (flip). Pasted HTML often doubles its italics for nothing; not there.
+// a run's text in the manuscript's own inline tags
+function runHtml(r, esc = escHtml) {
+  let t = esc(r.text);
+  if (r.s) t = '<s>' + t + '</s>';
+  if (r.u) t = '<u>' + t + '</u>';
+  if (r.i) t = '<i>' + t + '</i>';
+  if (r.b) t = '<b>' + t + '</b>';
+  return t;
+}
 function paraRuns(pHtml, flip) {
   const holder = document.createElement('template'); // inert: nothing loads or runs
   holder.innerHTML = pHtml;
   const runs = [];
-  const walk = (node, b, i) => {
+  const walk = (node, b, i, u, x) => {
     for (const child of node.childNodes) {
       if (child.nodeType === Node.TEXT_NODE) {
-        if (child.textContent) runs.push({ text: child.textContent.replace(/\u00a0/g, ' '), b, i });
+        if (child.textContent) runs.push({ text: child.textContent.replace(/\u00a0/g, ' '), b, i, u, s: x });
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         if (child.classList && child.classList.contains('ph-mark')) {
           runs.push({ mark: child.dataset.sid || '' });
@@ -8345,11 +8559,15 @@ function paraRuns(pHtml, flip) {
         const fw = String(st.fontWeight || '').toLowerCase();
         const it = tag === 'I' || tag === 'EM' || String(st.fontStyle || '').toLowerCase() === 'italic';
         const bo = tag === 'B' || tag === 'STRONG' || fw === 'bold' || parseInt(fw, 10) >= 600;
-        walk(child, b || bo, it ? (flip ? !i : true) : i);
+        // underline and strikethrough: the engine's tags, or a style
+        const deco = String(st.textDecoration || st.textDecorationLine || '').toLowerCase();
+        const un = tag === 'U' || tag === 'INS' || deco.includes('underline');
+        const st2 = tag === 'S' || tag === 'STRIKE' || tag === 'DEL' || deco.includes('line-through');
+        walk(child, b || bo, it ? (flip ? !i : true) : i, u || un, x || st2);
       }
     }
   };
-  walk(holder.content, false, false);
+  walk(holder.content, false, false, false, false);
   return runs;
 }
 
@@ -8373,7 +8591,7 @@ function docxP(runs, opts = {}) {
     const it = opts.flip ? !r.i : r.i;
     const caps = r.caps !== undefined ? r.caps : opts.caps;
     const size = r.size || opts.size;
-    const rPr = (r.b ? '<w:b/>' : '') + (it ? '<w:i/>' : '')
+    const rPr = (r.b ? '<w:b/>' : '') + (it ? '<w:i/>' : '') + (r.s ? '<w:strike/>' : '') + (r.u ? '<w:u w:val="single"/>' : '')
       + (caps === true ? '<w:caps/>' : caps === false ? '<w:caps w:val="0"/>' : '')
       + (opts.tracking ? `<w:spacing w:val="${opts.tracking}"/>` : '')
       + (size ? `<w:sz w:val="${size}"/>` : '');
@@ -8505,6 +8723,8 @@ function chapterXhtml(ch, d) {
   const kind = ch.kind || 'chapter';
   const xhtmlRuns = (p) => paraRuns(p.html).map((r) => {
     let t = escXml(r.text);
+    if (r.s) t = '<s>' + t + '</s>';
+    if (r.u) t = '<u>' + t + '</u>';
     if (r.i) t = '<em>' + t + '</em>';
     if (r.b) t = '<strong>' + t + '</strong>';
     return t;
