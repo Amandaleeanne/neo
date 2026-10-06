@@ -22,6 +22,7 @@ on:
     paths:
       - 'pocket/**'
       - 'app.js'
+      - 'src/renderer/**'
       - 'covers.js'
       - 'styles.css'
       - 'fonts/**'
@@ -72,6 +73,9 @@ jobs:
           cp ../covers.js www/covers.js
           cp ../styles.css www/styles.css
           cp ../i18n.js www/i18n.js
+          rm -rf www/src/renderer
+          mkdir -p www/src/renderer
+          cp ../src/renderer/*.js www/src/renderer/
           cp ../node_modules/jszip/dist/jszip.min.js www/jszip.min.js
           rm -rf www/fonts www/locales && cp -R ../fonts www/fonts && cp -R ../locales www/locales
           npx cap sync android

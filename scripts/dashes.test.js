@@ -5,9 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
+const rendererSource = require('./renderer-source');
 
-// the dialogue-dash rules from app.js, run on their own
-const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+// the dialogue-dash rules from the renderer, run on their own
+const app = rendererSource(path.join(__dirname, '..'));
 const context = vm.createContext({});
 vm.runInContext(app.slice(app.indexOf('const DIALOGUE_DASHES'), app.indexOf('function dashStyle(')), context);
 vm.runInContext('this.api = { DIALOGUE_DASHES, dialogueDashes, dialogueDashEdits, dashRuns };', context);

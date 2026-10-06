@@ -16,7 +16,16 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const JS_FILES = ['app.js', 'main.js', 'covers.js'];
+const sourceModules = (folder) => fs.readdirSync(path.join(ROOT, folder))
+  .filter((file) => file.endsWith('.js'))
+  .map((file) => path.join(folder, file));
+const JS_FILES = [
+  'app.js',
+  'main.js',
+  'covers.js',
+  ...sourceModules('src/main'),
+  ...sourceModules('src/renderer')
+];
 const LOCALES = path.join(ROOT, 'locales');
 
 function unescapeJs(s) {

@@ -18,10 +18,12 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before adding a feature. The product is 
 
 | File | Role |
 |---|---|
-| `main.js` | Window, menus, every filesystem operation, import parsing, PDF, backups |
+| `main.js` | Electron entry point; main-process services live under `src/main/` |
+| `src/main/` | Library storage, import/export, backups, menus, and update services |
 | `preload.js` | The entire renderer API, `window.neo` |
 | `index.html` | Two views: `#bookshelf-view` and `#editor-view`. CSP is `script-src 'self'` |
-| `app.js` | The whole UI, in banner-marked sections. Search for the banner before reading the file |
+| `app.js` | Shared renderer state and chapter/book helpers |
+| `src/renderer/` | Renderer modules organized by bookshelf, editor, writing tools, persistence, export, and accessibility |
 | `styles.css` | All styling. Tokens are CSS variables at the top |
 | `covers.js` | Shelf covers in the window: seeded canvas art plus real title type. `window.NeoCovers` |
 | `art.js` | Painted covers in the main process. OpenAI only. Title and author are never sent to the image model |
@@ -31,16 +33,18 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before adding a feature. The product is 
 | `locales/<code>.json` | One language. Regional files (`fr-CA.json`) hold only the strings that differ |
 | `pocket/` | Capacitor shell. It does not contain its own editor |
 
-`app.js` section banners look like `/*  SAVING  */`. Start there: bookshelf, bound shelves, editor open, typing, poetry, placeholders, nav, tabs, outline, darlings, counters, saving, refresh, structural undo, find, import, spellcheck, focus, goals, export.
+Renderer modules are loaded in order by `index.html`; their responsibilities are listed in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-Menus are built in `buildMenu()` in `main.js`. A menu click sends `{ type, ... }` to the window; `app.js` handles it on `window.neo.onMenu`.
+Menus are built in `buildMenu()` in `src/main/menu.js`. A menu click sends `{ type, ... }` to the window; renderer modules handle it on `window.neo.onMenu`.
+
+There is no need to read into the Pocket folder to edit anything, as that version is automatically made based on the edits on the files above.
 
 ## Processes
 
 ```
-index.html + app.js  →  preload.js (window.neo)  →  main.js  →  NEO Library
-                                                      ↓
-                                               spell-worker.js
+index.html + app.js + src/renderer/ → preload.js (window.neo) → main.js + src/main/ → NEO Library
+                                                                        ↓
+                                                                 spell-worker.js
 ```
 
 The window is created with `contextIsolation: true` and `nodeIntegration: false`. New renderer capabilities are added in three places: an `ipcMain.handle` in `main.js`, a method on `window.neo` in `preload.js`, and the call site in `app.js`.
@@ -93,16 +97,16 @@ Do not replace this with last-write-wins. The comments in `persistChapter` and `
 
 Wrap writer-visible strings in `t('English text', { placeholder })`. Use `tk()` for strings translated later, at the point of display. In `index.html`, use `data-i18n`, `data-i18n-title`, `data-i18n-placeholder`, or `data-i18n-ph`.
 
-After adding or changing strings:
+The translation scanner includes `src/main/` and `src/renderer/`. After adding or changing strings:
 
 ```
 node scripts/i18n.js template
 node scripts/i18n.js check fr
 ```
 
-`scripts/i18n.js` only scans `app.js`, `main.js`, `covers.js`, and `index.html`. A new string in another file will not enter the template until that list includes it.
+`scripts/i18n.js` scans `app.js`, `main.js`, `covers.js`, both source-module folders, and `index.html`.
 
-Details, plural forms, and regional fallback (`fr-CA` → `fr` → English) are in [TRANSLATING.md](TRANSLATING.md). Quotation marks follow the spellcheck language (`QUOTE_STYLES` in `app.js`). Import chapter detection is `CHAPTER_WORDS` in `main.js`. Cover small-words are `CONNECTORS` in `covers.js`.
+Details, plural forms, and regional fallback (`fr-CA` → `fr` → English) are in [TRANSLATING.md](TRANSLATING.md). Quotation marks follow the spellcheck language (`QUOTE_STYLES` in `app.js`). Import chapter detection is `CHAPTER_WORDS` in `src/main/import.js`. Cover small-words are `CONNECTORS` in `covers.js`.
 
 Italian has no spellcheck dictionary: the only Hunspell package on npm is GPL-3.0-only, and NEO is MIT. Do not add it.
 
@@ -141,5 +145,5 @@ Hugh pushes and releases himself and isn't a git user. Hand him work as a git bu
 - A new filesystem operation needs a handler, a `libName()` boundary, and a `preload.js` method. Match the existing IPC names (`library:`, `book:`, `chapter:`, `aux:`, `json:`, `cover:`).
 - A new writer-visible string needs `t()` and a template refresh.
 - A new way to remove text needs a recovery path and a sentence in the UI that says where the words went.
-- Export formats are assembled in `app.js` and written by `export:save` in `main.js`. EPUB is a zip built in memory. PDF is printed from temporary HTML.
+- Export formats are assembled in `src/renderer/export.js` and written by `export:save` in `src/main/export.js`. EPUB is a zip built in memory. PDF is printed from temporary HTML.
 - Errors in the main process are appended to `neo-errors.log` via `logError`. Renderer failures go through `window.neo.logError`. Do not swallow a save failure; `persistChapter` rolls `savedHTML` back so the next flush retries.
