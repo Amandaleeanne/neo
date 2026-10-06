@@ -19,10 +19,16 @@ function focusAfterSectionRemoved(list, index, chId) {
 }
 
 function renderOutline(focusTarget) {
-  book.sectionNotes = book.sectionNotes || {};
-  book.chapterNotes = book.chapterNotes || {};
   const wrap = $('#outline-list');
   wrap.innerHTML = '';
+  if (isScript()) {
+    wrap.classList.add('script-outline');
+    renderScriptOutline(wrap);
+    return;
+  }
+  wrap.classList.remove('script-outline');
+  book.sectionNotes = book.sectionNotes || {};
+  book.chapterNotes = book.chapterNotes || {};
 
   // the story's lines, with each part standing over its chapters (the pages
   // a book carries have nothing to outline)
@@ -587,4 +593,3 @@ async function restoreDarling(id) {
   focusChapter(chId);
   toast(t('Original spot is gone — restored to the end of {label}', { label: d.chapterLabel || t('the manuscript') }));
 }
-

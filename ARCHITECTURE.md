@@ -36,6 +36,7 @@ chapter/book helpers. `index.html` loads the remaining scripts in this order:
 | `src/renderer/editor-typing.js` | Manuscript editing and keyboard input |
 | `src/renderer/paragraph-styles.js` | Poetry and flush-paragraph writing styles |
 | `src/renderer/vim-keys.js` | Vim-style navigation and editing keys |
+| `src/renderer/screenplay.js` | Screenplay editing rules, scene outline cards, Fountain/FDX conversion, pagination, and screenplay exports |
 | `src/renderer/placeholders.js` | Manuscript placeholders and stickies |
 | `src/renderer/navigation.js` | Chapter navigation pane and chapter actions |
 | `src/renderer/tabs.js` | Manuscript, notes, outline, and darlings tabs |

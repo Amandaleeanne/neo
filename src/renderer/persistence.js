@@ -336,6 +336,8 @@ async function backToShelf() {
   book = null;
   currentChapterId = null;
   undoStack = [];
+  spEditorMode();
+  spReportState();
   $('#editor-view').hidden = true;
   $('#bookshelf-view').hidden = false;
   renderShelves();

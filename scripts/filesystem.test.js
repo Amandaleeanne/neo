@@ -31,6 +31,7 @@ function loadMain() {
     BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
     Menu: { buildFromTemplate: (items) => items, setApplicationMenu() {} },
     dialog: {},
+    shell: { trashItem: async () => {} },
     utilityProcess: { fork: () => ({ on() {}, postMessage() {} }) },
     screen: {}
   };
@@ -45,6 +46,7 @@ function loadMain() {
   vm.runInContext(source, context, { filename: path.join(root, 'main.js') });
   return {
     context,
+    electron,
     call: (name, ...args) => handlers.get(name)(null, ...args),
     pointAt(dir) {
       context.libraryRoot = dir;
@@ -96,6 +98,28 @@ describe('filesystem', { concurrency: 1 }, () => {
       assert.equal(blank.title, 'Untitled');
       assert.equal(blank.author, 'Anonymous');
     } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('book:delete confirms and sends the book folder to system trash', async () => {
+    const dir = tempLibrary();
+    try {
+      const book = main.call('book:create', { title: 'Recoverable', author: 'Ada' });
+      let trashed = null;
+      main.electron.dialog.showMessageBox = async (win, options) => {
+        assert.equal(win, null);
+        assert.match(options.message, /Recoverable/);
+        return { response: 1 };
+      };
+      main.electron.shell.trashItem = async (folder) => { trashed = folder; };
+
+      assert.equal(await main.call('book:delete', book.id, book.title), true);
+      assert.equal(trashed, path.join(dir, book.id));
+      assert.equal(fs.existsSync(trashed), true);
+    } finally {
+      main.electron.dialog.showMessageBox = undefined;
+      main.electron.shell.trashItem = async () => {};
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });

@@ -11,27 +11,39 @@ function bookWordCount() {
 
 function updateCounters() {
   if (!book) return;
-  const total = bookWordCount();
-  const wc = $('#word-counter');
-  if (wordMode === 'book') wc.textContent = t('{n} words', { n: total });
-  const cur = book.chapterOrder.includes(currentChapterId) ? currentChapterId : null;
-  const solo = soloStory();
-  if (wordMode !== 'book') {
-    const n = cur ? chapterWords(cur) : 0;
-    wc.textContent = cur && chapterKind(cur) !== 'chapter'
-      ? t('{name}: {n} words', { name: chapterName(cur), n })
-      : t('ch. {ch}: {n} words', { ch: cur ? chapterNumber(cur) : 0, n });
+  if (isScript() && !updateCounters.now) {
+    clearTimeout(updateCounters.t);
+    updateCounters.t = setTimeout(() => {
+      updateCounters.now = true;
+      try { updateCounters(); } finally { updateCounters.now = false; }
+    }, 250);
+    return;
   }
-  const pos = $('#pos-counter');
-  pos.textContent = library.posMode === 'page'
-    ? (cur ? t('page {p} of {total}', { p: currentPage(cur), total: pageCount(total) }) : t('{n} pages', { n: pageCount(total) }))
-    : !cur
-    ? (numberedChapters() > 1 ? t('{n} chapters', { n: numberedChapters() }) : '')
-    : cur === solo
-      ? '' // a chapterless story needs no chapter locator
-      : chapterKind(cur) !== 'chapter'
-        ? chapterName(cur)
-        : t('chapter {ch} of {total}', { ch: chapterNumber(cur), total: numberedChapters(book, cur) });
+  const total = bookWordCount();
+  if (isScript()) {
+    spCounters();
+  } else {
+    const wc = $('#word-counter');
+    if (wordMode === 'book') wc.textContent = t('{n} words', { n: total });
+    const cur = book.chapterOrder.includes(currentChapterId) ? currentChapterId : null;
+    const solo = soloStory();
+    if (wordMode !== 'book') {
+      const n = cur ? chapterWords(cur) : 0;
+      wc.textContent = cur && chapterKind(cur) !== 'chapter'
+        ? t('{name}: {n} words', { name: chapterName(cur), n })
+        : t('ch. {ch}: {n} words', { ch: cur ? chapterNumber(cur) : 0, n });
+    }
+    const pos = $('#pos-counter');
+    pos.textContent = library.posMode === 'page'
+      ? (cur ? t('page {p} of {total}', { p: currentPage(cur), total: pageCount(total) }) : t('{n} pages', { n: pageCount(total) }))
+      : !cur
+      ? (numberedChapters() > 1 ? t('{n} chapters', { n: numberedChapters() }) : '')
+      : cur === solo
+        ? ''
+        : chapterKind(cur) !== 'chapter'
+          ? chapterName(cur)
+          : t('chapter {ch} of {total}', { ch: chapterNumber(cur), total: numberedChapters(book, cur) });
+  }
   // cache for the bookshelf progress bar
   if (book.wordCount !== total) {
     // only a true crossing earns a painting — a story that was already long

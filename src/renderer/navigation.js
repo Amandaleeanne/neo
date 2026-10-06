@@ -12,6 +12,7 @@ function renderNav() {
   // Replacing the source row during a native drag can interrupt its lifecycle.
   if (chapterDragActive) { navRefreshPending = true; return; }
   navRefreshPending = false;
+  if (isScript()) { renderScriptNav(); return; }
   const list = $('#nav-list');
   // a keyboard user on a chapter row keeps their place through the rebuild
   const focusedRow = document.activeElement && document.activeElement.classList.contains('n-row') &&
@@ -395,4 +396,3 @@ if (!NO_HOVER) {
     if (kept.side) pinPane('side', true);
   } catch { /* nothing kept */ }
 }
-

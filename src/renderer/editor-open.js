@@ -29,8 +29,11 @@ async function openBook(bookId) {
   $('#tp-author').textContent = book.author || t('Anonymous');
   $$('.tab[data-tab="notes"]')[0].textContent = tabName('notes');
   $$('.tab[data-tab="outline"]')[0].textContent = tabName('outline');
+  spEditorMode();
 
   renderChapters();
+  spShowElement();
+  spReportState();
   renderStickies();
   migrateDarlingAnchors(); // sweep legacy invisible markers out of the prose
   reconcileMarks();        // re-adopt any note marks orphaned by cut/paste
@@ -38,11 +41,12 @@ async function openBook(bookId) {
 
   // Plotters land in the outline for a brand-new book
   const isNew = book.chapterOrder.length === 0;
-  if (isNew && library.writingStyle === 'plotter') {
+  const newScript = isScript() && isUntitled(book.title) && !bookWordCount();
+  if (isNew && library.writingStyle === 'plotter' && !isScript()) {
     switchTab('outline');
   } else {
     switchTab('manuscript');
-    if (isNew) {
+    if (isNew || newScript) {
       $('#tp-title').focus();
     } else if (book.lastPosition && book.chapterOrder.includes(book.lastPosition.chapterId)) {
       // pick up right where you left off — here, or on the other device
@@ -53,11 +57,12 @@ async function openBook(bookId) {
   }
 
   // the Enter hint shows once per library, ever
-  if (!library.hintShown) {
+  if (!library.hintShown && !isScript()) {
     library.hintShown = true;
     writeLibrary(library);
     setTimeout(() => toast(t('Enter twice = section break · three times = new chapter · {key} shows everything else', { key: KHELP }), 7000), 800);
   }
+  spReportState();
 }
 
 // the pages that show a faint word until they have their own
@@ -144,6 +149,7 @@ function renderChapters() {
     else body.setAttribute('aria-labelledby', head.id);
     body.spellcheck = false; // NEO runs its own spellcheck pass
     if (!story) body.classList.add('no-cap');
+    if (isScript()) body.classList.add('script-body', $('#paper').classList.contains('narrow') ? 'sp-narrow' : 'sp-geom', 'no-cap');
     body.innerHTML = chapterHTML[chId] || '<p><br></p>';
     markDialogueOpening(body);
     if (PAGE_PROMPTS[kind]) {
@@ -184,6 +190,10 @@ function renderChapters() {
     }
     wireChapterBody(body, chId);
   });
+  if (isScript()) {
+    spRepaginate();
+    if (document.fonts) document.fonts.load('1em "Courier Prime"').then(() => spSchedule(0)).catch(() => {});
+  }
   renderNav();
 }
 

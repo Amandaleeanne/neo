@@ -11,6 +11,17 @@ module.exports = function registerMenuService({
   let poetryState = false;
   let flushState = false;
   let typewriterState = false;
+  let scriptState = { on: false, element: null };
+  ipcMain.on('script:state', (_e, state) => {
+    const next = {
+      on: !!(state && state.on),
+      element: state && ['heading', 'action', 'character', 'paren', 'dialogue', 'transition', 'shot'].includes(state.element)
+        ? state.element : 'action'
+    };
+    if (next.on === scriptState.on && next.element === scriptState.element) return;
+    scriptState = next;
+    try { buildMenu(); } catch (err) { logError('menu', err); }
+  });
   ipcMain.on('poetry:state', (_e, on) => {
     on = !!on;
     if (on === poetryState) return;
@@ -100,7 +111,11 @@ module.exports = function registerMenuService({
         submenu: [
           {
             label: t('Export'),
-            submenu: [
+            submenu: scriptState.on ? [
+              { label: t('PDF (.pdf)'), click: () => sendToWindow({ type: 'export', format: 'pdf' }) },
+              { label: t('Fountain (.fountain)'), click: () => sendToWindow({ type: 'export', format: 'fountain' }) },
+              { label: t('Final Draft (.fdx)'), click: () => sendToWindow({ type: 'export', format: 'fdx' }) }
+            ] : [
               { label: t('Plain Text (.txt)'), click: () => sendToWindow({ type: 'export', format: 'txt' }) },
               { label: 'Markdown (.md)', click: () => sendToWindow({ type: 'export', format: 'md' }) },
               { label: t('Web Page (.html)'), click: () => sendToWindow({ type: 'export', format: 'html' }) },
@@ -239,16 +254,34 @@ module.exports = function registerMenuService({
           // they're named here without an accelerator
           {
             label: t('Flush Paragraph') + '\t' + (isMac ? '⇧Enter' : 'Shift+Enter'),
+            visible: !scriptState.on,
             type: 'checkbox',
             checked: flushState,
             click: () => sendToWindow({ type: 'flush' })
           },
           {
             label: t('Poetry Paragraph') + '\t' + (isMac ? '⇧⌘Enter' : 'Ctrl+Shift+Enter'),
+            visible: !scriptState.on,
             type: 'checkbox',
             checked: poetryState,
             click: () => sendToWindow({ type: 'poetry' })
           },
+          ...(scriptState.on
+            ? [
+              [t('Scene Heading'), 'heading'],
+              [t('Action'), 'action'],
+              [t('Character'), 'character'],
+              [t('Parenthetical'), 'paren'],
+              [t('Dialogue'), 'dialogue'],
+              [t('Transition'), 'transition'],
+              [t('Shot'), 'shot']
+            ].map(([label, value], i) => ({
+              label: `${label}\t${isMac ? '⌘' : 'Ctrl+'}${i + 1}`,
+              type: 'radio',
+              checked: scriptState.element === value,
+              click: () => sendToWindow({ type: 'scriptElement', value })
+            }))
+            : []),
           { type: 'separator' },
           // *italic* and **bold** as you type or paste; off for writers who
           // keep literal asterisks

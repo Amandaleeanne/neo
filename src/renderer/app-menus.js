@@ -243,9 +243,7 @@ function applyFonts() {
   if (window.neo.uiZoomState) window.neo.uiZoomState(uiZoom);
   const size = Math.min(22, Math.max(14, library.editorFontSize || 17));
   document.documentElement.style.setProperty('--editor-size', size + 'px');
-  const zoom = Math.min(3, Math.max(0.75, library.pageZoom || 1));
-  document.documentElement.style.setProperty('--page-zoom', zoom);
-  updateZoomDisplay();
+  applyPageZoom();
 }
 
 // A built-in choice, or a font the writer picked from their own computer.
@@ -318,9 +316,20 @@ async function pickLocalFont() {
 // Pinch (trackpad) or Ctrl+scroll: page and text zoom together.
 // A pinch arrives as a wheel event with ctrlKey set.
 let zoomSaveTimer = null;
+function pageZoomKey() {
+  return book && isScript() ? 'scriptPageZoom' : 'pageZoom';
+}
+function currentPageZoom() {
+  const key = pageZoomKey();
+  return Math.min(3, Math.max(0.75, library[key] || library.pageZoom || 1));
+}
+function applyPageZoom() {
+  document.documentElement.style.setProperty('--page-zoom', currentPageZoom());
+  updateZoomDisplay();
+}
 function updateZoomDisplay() {
   const el = $('#zoom-level');
-  if (el) el.textContent = Math.round((library.pageZoom || 1) * 100) + '%';
+  if (el) el.textContent = Math.round(currentPageZoom() * 100) + '%';
 }
 // Zooming or resizing the text reflows the whole book, and the same scroll
 // offset lands somewhere else. Pin a spot in the text first: the caret if
@@ -361,8 +370,9 @@ function setPageZoom(next, at) {
   // up to 300%: on a large monitor 160% still read small. The page itself
   // never grows past the window (max-width in styles.css), only the type does.
   next = Math.min(3, Math.max(0.75, next));
-  if (next === (library.pageZoom || 1)) return;
-  library.pageZoom = next;
+  const key = pageZoomKey();
+  if (next === currentPageZoom()) return;
+  library[key] = next;
   keepReadingPlace(() => document.documentElement.style.setProperty('--page-zoom', next), at);
   updateZoomDisplay();
   clearTimeout(zoomSaveTimer);

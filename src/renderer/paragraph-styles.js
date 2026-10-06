@@ -256,7 +256,9 @@ function sceneBreakDelete(e, body, chId) {
 function captureBody(body) {
   // (a page marks the lines that say who said it, and a chapter the speech
   // after a scene break, for the screen only)
-  return body.innerHTML.replace(/<p\b[^>]*>/g, (tag) => tag.replace(/ data-(?:attr|speech|first)=""/g, ''));
+  return body.innerHTML.replace(/<p\b[^>]*>/g, (tag) =>
+    tag.replace(/ data-(?:attr|speech|first)=""/g, '')
+      .replace(/ data-(?:pg|fill|contd|ghost(?:-empty)?|sp-paste)(?:="[^"]*")?/g, ''));
 }
 
 // A chapter that opens on a line of dialogue sets no drop cap: the dash
@@ -913,7 +915,7 @@ document.addEventListener('keydown', (e) => {
 $('#tp-title').addEventListener('keydown', titleEnter);
 $('#tp-subtitle').addEventListener('keydown', titleEnter);
 function titleEnter(e) {
-  if (e.key !== 'Enter') return;
+  if (!book || e.key !== 'Enter') return;
   e.preventDefault();
   // into the story, past any pages that come before it
   const first = book.chapterOrder.find((c) => isStory(c));
@@ -921,15 +923,18 @@ function titleEnter(e) {
   else focusChapter(createChapterAt(storyEnd()));
 }
 $('#tp-title').addEventListener('input', () => {
+  if (!book) return;
   book.title = $('#tp-title').textContent.trim() || t('Untitled');
   scheduleMetaSave();
 });
 $('#tp-subtitle').addEventListener('input', () => {
+  if (!book) return;
   book.subtitle = $('#tp-subtitle').textContent.trim();
   scheduleMetaSave();
 });
 // each book can carry its own pen name
 $('#tp-author').addEventListener('input', () => {
+  if (!book) return;
   book.author = $('#tp-author').textContent.trim();
   scheduleMetaSave();
 });

@@ -18,6 +18,7 @@ const rendererModules = [
   ['editor-typing.js', '/*  EDITOR — typing'],
   ['paragraph-styles.js', '/*  POETRY PARAGRAPHS'],
   ['vim-keys.js', '/*  Vim keys (View → Vim Keys'],
+  ['screenplay.js', '/*  SCREENPLAYS'],
   ['placeholders.js', '/*  PLACEHOLDERS + STICKIES'],
   ['navigation.js', '/*  NAV PANE'],
   ['tabs.js', '/*  TABS — Manuscript / Notes / Outline / Darlings'],
@@ -172,21 +173,29 @@ function range(source, startMarker, endMarker, filename) {
 function splitRenderer(source, filename) {
   const starts = rendererModules.map(([, marker]) => {
     const at = source.indexOf(marker);
+    if (at < 0 && marker === '/*  SCREENPLAYS') return -1;
     if (at < 0) throw new Error(`Cannot map ${filename}: missing renderer section "${marker}"`);
     return at;
   });
-  if (starts.some((at, i) => i && at <= starts[i - 1])) {
+  const present = starts.map((at, index) => ({ at, index })).filter(({ at }) => at >= 0);
+  if (present.some(({ at }, i) => i && at <= present[i - 1].at)) {
     throw new Error(`Cannot map ${filename}: renderer sections changed order`);
   }
-  const chunks = new Map([['core', source.slice(0, starts[0])]]);
-  rendererModules.forEach(([filename], i) => {
-    chunks.set(filename, source.slice(starts[i], starts[i + 1] || source.length));
+  const chunks = new Map([['core', source.slice(0, present[0].at)]]);
+  rendererModules.forEach(([module], i) => {
+    const at = starts[i];
+    const next = present.find(({ index }) => index > i);
+    chunks.set(module, at < 0 ? '' : source.slice(at, next ? next.at : source.length));
   });
   return chunks;
 }
 
 function currentRenderer(rootDir) {
-  const source = require('./renderer-source')(rootDir);
+  const source = [
+    fs.readFileSync(path.join(rootDir, 'app.js'), 'utf8'),
+    ...rendererModules.map(([file]) => fs.readFileSync(path.join(rootDir, 'src/renderer', file), 'utf8')
+      .replace(/^'use strict';\n\n/, ''))
+  ].join('');
   return splitRenderer(source, 'fork renderer modules');
 }
 
@@ -315,8 +324,11 @@ function mergeText(current, base, upstream, labels) {
       ours, ancestor, theirs
     ], { cwd: root, encoding: 'utf8' });
     if (result.error) throw result.error;
-    if (result.status > 1) throw new Error(result.stderr || 'git merge-file failed');
-    return { text: result.stdout, conflict: result.status === 1 };
+    const conflict = result.stdout.includes('<<<<<<< ');
+    if (result.status && !conflict) {
+      throw new Error(result.stderr || `git merge-file exited with status ${result.status}`);
+    }
+    return { text: result.stdout, conflict };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

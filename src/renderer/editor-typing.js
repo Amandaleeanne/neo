@@ -8,6 +8,7 @@ function wireChapterBody(body, chId) {
 
   body.addEventListener('input', () => {
     breakRun = 0; // fresh typing: ⌘Z belongs to the engine again
+    if (isScript()) scriptInput(body);
     markDialogueOpening(body);
     chapterHTML[chId] = captureBody(body);
     wordCache[chId] = null;
@@ -19,6 +20,7 @@ function wireChapterBody(body, chId) {
   });
   // paste without formatting
   body.addEventListener('paste', (e) => {
+    if (isScript() && spPaste(e, body, chId)) return;
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
     const text = e.clipboardData.getData('text/plain');
@@ -71,6 +73,15 @@ function wireChapterBody(body, chId) {
       if (destructive) healSelectionSeams(body);
     }
     if (styleKeepScroll(e)) return;
+    if (isScript()) {
+      if (scriptKey(e, body)) return;
+      if (spaceSafeDelete(e, body, chId)) return;
+      if (emptyChapterBackspace(e, body, chId)) return;
+      if (chapterStartBackspace(e, body, chId)) return;
+      if (guardMarkerDelete(e, body, chId)) return;
+      smartKeys(e, body);
+      return;
+    }
     if (handlePoetry(e, body, chId)) return;
     if (handleFlush(e, body, chId)) return;
     if (poetryBackspace(e, body, chId)) return;
@@ -108,6 +119,7 @@ function wireChapterBody(body, chId) {
   // becomes the flush paragraph ⇧Enter makes, or the next line of a poem.
   body.addEventListener('beforeinput', (e) => {
     if (e.inputType !== 'insertLineBreak' || e.defaultPrevented) return;
+    if (isScript()) { e.preventDefault(); return; }
     const key = { key: 'Enter', shiftKey: true, metaKey: false, ctrlKey: false, altKey: false, preventDefault: () => e.preventDefault() };
     if (!handlePoetry(key, body, chId)) handleFlush(key, body, chId);
   });

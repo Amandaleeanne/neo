@@ -10,6 +10,7 @@ const modules = [
   'editor-typing.js',
   'paragraph-styles.js',
   'vim-keys.js',
+  'screenplay.js',
   'placeholders.js',
   'navigation.js',
   'tabs.js',

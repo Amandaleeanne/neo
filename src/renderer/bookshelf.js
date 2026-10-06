@@ -341,7 +341,7 @@ async function renderShelves() {
         if (!paths.length) return;
         toast(t('Importing…'));
         const results = await window.neo.importFiles(paths);
-        if (!results.length) { toast(t('No .docx, .txt, or .md files in that drop')); return; }
+        if (!results.length) { toast(t('No supported manuscript or screenplay files in that drop')); return; }
         await addImportedBooks(results, shelf);
         return;
       }
@@ -385,6 +385,17 @@ async function renderShelves() {
     blank.title = t('Start a new book');
     blank.onclick = () => createBookOnShelf(shelf);
     pressable(blank, t('Start a new book'));
+    if (!isBound(shelf)) {
+      blank.addEventListener('contextmenu', async (e) => {
+        e.preventDefault();
+        const pick = await popMenu(e.clientX, e.clientY, [
+          { label: t('New Book'), value: 'book' },
+          { label: t('New Script'), value: 'script' }
+        ], { from: blank });
+        if (pick === 'book') createBookOnShelf(shelf);
+        else if (pick === 'script') createScriptOnShelf(shelf);
+      });
+    }
 
     if (isBound(shelf)) {
       await renderBoundRow(shelf, row, blank);

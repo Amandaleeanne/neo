@@ -647,6 +647,7 @@ function coverMode(meta) {
 }
 
 function dressTile(el, meta) {
+  if (isScript(meta)) return;
   el.classList.remove('has-cover');
   const mode = coverMode(meta);
   if (mode === 'image') {
@@ -679,12 +680,15 @@ function bookTile(meta, opts = {}) {
     <div class="b-painting" hidden></div>
     <div class="b-progress" hidden><div></div></div>`;
   el.querySelector('.b-author').textContent = meta.author || '';
-  dressTile(el, meta);
-  el.querySelector('.b-painting').hidden = !(meta.coverArt && meta.coverArt.status === 'pending');
-  el.querySelector('.b-refresh').onclick = async (e) => {
-    e.stopPropagation();
-    await refreshCover(meta, el);
-  };
+  if (isScript(meta)) scriptTile(el, meta);
+  else {
+    dressTile(el, meta);
+    el.querySelector('.b-painting').hidden = !(meta.coverArt && meta.coverArt.status === 'pending');
+    el.querySelector('.b-refresh').onclick = async (e) => {
+      e.stopPropagation();
+      await refreshCover(meta, el);
+    };
+  }
   if (meta.wordGoal > 0) {
     const bar = el.querySelector('.b-progress');
     bar.hidden = false;
@@ -696,7 +700,7 @@ function bookTile(meta, opts = {}) {
     : meta.title;
   el.onclick = () => (opts.cover ? openTitlePage(opts.cover, meta) : openBook(meta.id));
   pressable(el, [el.title, meta.author ? t('by {author}', { author: meta.author }) : ''].filter(Boolean).join(', '));
-  el.querySelector('.b-refresh').setAttribute('aria-hidden', 'true'); // the book's right-click menu offers the same
+  if (!isScript(meta)) el.querySelector('.b-refresh').setAttribute('aria-hidden', 'true'); // the book's right-click menu offers the same
   el.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('application/x-neo-book', meta.id);
     // the ghost that rides under the cursor is a faded, smaller cover, held
@@ -722,7 +726,7 @@ function bookTile(meta, opts = {}) {
     let p = null;
     try { p = window.neo.pathForFile(e.dataTransfer.files[0]); } catch { /* no path */ }
     if (!p) return;
-    if (/\.(png|jpe?g|webp)$/i.test(p)) {
+    if (/\.(png|jpe?g|webp)$/i.test(p) && !isScript(meta)) {
       const fname = await window.neo.setCover(meta.id, p);
       if (fname) {
         meta.coverImage = fname;
@@ -730,7 +734,7 @@ function bookTile(meta, opts = {}) {
         await writeBookMeta(meta.id, meta);
         renderShelves();
       }
-    } else if (/\.(docx|txt|md)$/i.test(p)) {
+    } else if (/\.(docx|txt|md|fountain|fdx)$/i.test(p)) {
       const homeShelf = library.shelves.find((s) => s.bookIds.includes(meta.id)) || library.shelves[0];
       const results = await window.neo.importFiles([p]);
       if (results.length) await addImportedBooks(results, homeShelf);
@@ -752,17 +756,22 @@ function bookTile(meta, opts = {}) {
     }
     // no hover on a touch screen, so the ↻ that lives under the pointer
     // moves into the menu; picking an image file is a desktop affair
-    if (NO_HOVER) options.push({ label: t('New cover'), desc: t('Another abstract cover for this book.'), value: 'refresh' });
-    else options.push({ label: meta.coverImage ? t('Replace cover art…') : t('Set cover art…'), desc: t('Pick an image (2:3 works best). Or just drag one from Finder onto the book.'), value: 'cover' });
-    if (meta.coverImage) {
-      options.push({ label: t('Remove cover art'), desc: t('Deletes the image from the book folder. (To just hide it, use the ↻ on the book.)'), danger: true, value: 'uncover' });
+    if (!isScript(meta)) {
+      if (NO_HOVER) options.push({ label: t('New cover'), desc: t('Another abstract cover for this book.'), value: 'refresh' });
+      else options.push({ label: meta.coverImage ? t('Replace cover art…') : t('Set cover art…'), desc: t('Pick an image (2:3 works best). Or just drag one from Finder onto the book.'), value: 'cover' });
+      if (meta.coverImage) {
+        options.push({ label: t('Remove cover art'), desc: t('Deletes the image from the book folder. (To just hide it, use the ↻ on the book.)'), danger: true, value: 'uncover' });
+      }
+      if (!window.Capacitor) options.push({ label: t('Save cover as image…'), desc: t('Full size, with your title and author.'), value: 'saveCover' });
     }
-    if (!window.Capacitor) options.push({ label: t('Save cover as image…'), desc: t('Full size, with your title and author.'), value: 'saveCover' });
     // Pocket has no File menu: export lives here and in the ⋯ sheet
-    if (window.Capacitor) options.push({ label: t('Export…'), desc: t('Text, Markdown, HTML, Word or EPUB, through the share sheet.'), value: 'export' });
+    if (window.Capacitor) options.push({
+      label: t('Export…'),
+      desc: isScript(meta) ? t('PDF, Fountain or Final Draft through the share sheet.') : t('Text, Markdown, HTML, Word or EPUB, through the share sheet.'),
+      value: 'export'
+    });
     options.push(
-      // the ↻ on the cover, for the keyboard and screen readers
-      { label: t('New cover'), value: 'refresh' },
+      ...(!isScript(meta) ? [{ label: t('New cover'), value: 'refresh' }] : []),
       { label: t('Set word goal…'), desc: t('Adds the subtle progress bar to the cover.'), value: 'goal' },
       { label: t('Remove from bookshelf'), desc: t('Takes it off your shelves. The files stay safe in your NEO Library folder on disk.'), value: 'remove' },
       window.Capacitor
@@ -780,8 +789,16 @@ function bookTile(meta, opts = {}) {
       await refreshCover(meta, el);
     } else if (choice === 'export') {
       const fmt = await optionModal(t('Export “{title}”', { title: meta.title }), null, [
-        { label: t('Text (.txt)'), value: 'txt' }, { label: t('Markdown (.md)'), value: 'md' }, { label: t('HTML (.html)'), value: 'html' },
-        { label: t('Word (.docx)'), value: 'docx' }, { label: t('EPUB (.epub)'), value: 'epub' }
+        ...(isScript(meta)
+          ? [
+            ...(!window.Capacitor ? [{ label: t('PDF (.pdf)'), value: 'pdf' }] : []),
+            { label: t('Fountain (.fountain)'), value: 'fountain' },
+            { label: t('Final Draft (.fdx)'), value: 'fdx' }
+          ]
+          : [
+            { label: t('Text (.txt)'), value: 'txt' }, { label: t('Markdown (.md)'), value: 'md' }, { label: t('HTML (.html)'), value: 'html' },
+            { label: t('Word (.docx)'), value: 'docx' }, { label: t('EPUB (.epub)'), value: 'epub' }
+          ])
       ]);
       if (!fmt) return;
       await openBook(meta.id);
@@ -860,6 +877,7 @@ const STALE_PAINT_MS = 10 * 60 * 1000; // a job that never came back
 
 function paintable(meta) {
   if (!meta || meta.coverImage) return false; // the writer's own art is never painted over
+  if (isScript(meta)) return false;
   if (meta.kind) return false; // a bound book's pages show no cover of their own
   if ((meta.wordCount || 0) < PAINT_AT) return false;
   const art = meta.coverArt;

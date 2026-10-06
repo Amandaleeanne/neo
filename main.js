@@ -2,7 +2,7 @@
 // Owns the window and all file-system access. The renderer talks to this
 // through the IPC handlers below (see preload.js for the exposed API).
 
-const { app, BrowserWindow, ipcMain, dialog, Menu, MenuItem, utilityProcess, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, MenuItem, utilityProcess, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -256,7 +256,7 @@ function reportBlockedWrite(err) {
 }
 
 const { ensureLibrary, libName, bookDir, writeCatalog, writeFileDurable, parseJSONFile, readJSON, writeJSON, rebuildBookMeta } = require('./src/main/library.js')({
-  fs, path, ipcMain, t, logError, getLibraryDir: () => LIBRARY_DIR, getLibraryFile: () => LIBRARY_FILE
+  fs, path, ipcMain, BrowserWindow, dialog, shell, t, logError, getLibraryDir: () => LIBRARY_DIR, getLibraryFile: () => LIBRARY_FILE
 });
 
 const COVER_EXTS = ['png', 'jpg', 'jpeg', 'webp'];

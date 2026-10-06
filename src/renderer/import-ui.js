@@ -13,6 +13,11 @@ async function addImportedBooks(results, shelf) {
   let ok = 0;
   for (const r of results) {
     if (r.error) { toast(t('Couldn’t import {name}: {error}', { name: r.name, error: r.error }), 6000); continue; }
+    if (r.script) {
+      if (await importScript(r, shelf)) ok++;
+      else toast(t('Couldn’t import {name}: no screenplay lines found', { name: r.name }), 6000);
+      continue;
+    }
     // title/byline harvested from the document beat the filename;
     // passing the title in gives the book folder a readable name too
     const meta = await window.neo.createBook({

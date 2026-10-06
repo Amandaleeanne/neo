@@ -1080,6 +1080,7 @@ function plainError(err) {
 // the whole book, or with chId just that chapter
 async function doExport(format, chId = null) {
   if (!book) { toast(t('Open a book first')); return; }
+  if (isScript()) { await spExport(format); return; }
   flushAllSaves();
   const one = chId ? chapterExportData(chId) : null;
   if (chId && !one) return;
@@ -1316,7 +1317,7 @@ async function showAbout() {
 async function setEditorFontSize(value) {
   const cur = library.editorFontSize || 17;
   library.editorFontSize = value === 0 ? 17 : Math.min(22, Math.max(14, cur + value));
-  if (value === 0) library.pageZoom = 1; // ⌘0 resets pinch zoom too
+  if (value === 0) library[pageZoomKey()] = 1; // ⌘0 resets pinch zoom too
   await writeLibrary(library);
   keepReadingPlace(applyFonts);
 }
@@ -1338,6 +1339,7 @@ window.neo.onMenu(async (msg) => {
   if (msg.type === 'checkUpdate') checkForUpdate();
   if (msg.type === 'update') updateMessage(msg);
   if (msg.type === 'export') doExport(msg.format);
+  if (msg.type === 'scriptElement' && book && isScript()) spSetElement(msg.value);
   if (msg.type === 'markdownEmphasis') {
     if (msg.checked) delete library.markdownOff; else library.markdownOff = true;
     await writeLibrary(library);

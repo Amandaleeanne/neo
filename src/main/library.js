@@ -1,6 +1,6 @@
 'use strict';
 
-module.exports = function registerLibraryStorage({ fs, path, ipcMain, t, logError, getLibraryDir, getLibraryFile }) {
+module.exports = function registerLibraryStorage({ fs, path, ipcMain, BrowserWindow, dialog, shell, t, logError, getLibraryDir, getLibraryFile }) {
   function ensureLibrary() {
     if (!fs.existsSync(getLibraryDir())) fs.mkdirSync(getLibraryDir(), { recursive: true });
     if (!fs.existsSync(getLibraryFile())) {
@@ -297,7 +297,6 @@ module.exports = function registerLibraryStorage({ fs, path, ipcMain, t, logErro
       detail: t('The book folder goes to your system trash, so you can recover it.')
     });
     if (response === 1) {
-      const { shell } = require('electron');
       try {
         await shell.trashItem(bookDir(bookId));
         return true;

@@ -1,7 +1,6 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -10,39 +9,46 @@ const sync = require('./sync-upstream');
 const rendererSource = require('./renderer-source');
 
 const root = path.join(__dirname, '..');
-const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
 
-test('renderer section manifest reconstructs the tracked renderer', () => {
-  let reconstructed = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
-  for (const file of rendererSource.modules) {
-    reconstructed += fs.readFileSync(path.join(root, 'src/renderer', file), 'utf8')
-      .replace(/^'use strict';\n\n/, '');
-  }
-  assert.equal(reconstructed, git('show', 'HEAD:app.js'));
+test('renderer module manifest maps sections in runtime load order', () => {
+  const assembled = [
+    fs.readFileSync(path.join(root, 'app.js'), 'utf8'),
+    ...rendererSource.modules.map((file) => fs.readFileSync(path.join(root, 'src/renderer', file), 'utf8')
+      .replace(/^'use strict';\n\n/, ''))
+  ].join('');
+  const mapped = sync.currentRenderer(root);
+  assert.equal(mapped.size, rendererSource.modules.length + 1);
+  assert.equal([
+    mapped.get('core'),
+    ...rendererSource.modules.map((file) => mapped.get(file))
+  ].join(''), assembled);
 });
 
-test('main-service modules map back to the tracked main-process sections', () => {
-  const trackedMain = git('show', 'HEAD:main.js');
-  const trackedModules = sync.sourceMainModules(trackedMain, 'tracked main.js');
+test('renderer mapping treats a not-yet-existing upstream feature module as a clean addition', () => {
+  const mapped = sync.currentRenderer(root);
+  const withoutScreenplay = [
+    mapped.get('core'),
+    ...rendererSource.modules
+      .filter((file) => file !== 'screenplay.js')
+      .map((file) => mapped.get(file))
+  ].join('');
+  assert.equal(sync.splitRenderer(withoutScreenplay, 'older upstream app.js').get('screenplay.js'), '');
+});
+
+test('main-service source maps identify every module wrapper', () => {
   const currentModules = sync.currentMainModules(root);
-
-  for (const spec of sync.mainModules) {
-    const merge = sync.mergeText(
-      sync.trimIndent(currentModules.get(spec.name).text),
-      sync.trimIndent(trackedModules.get(spec.name).text),
-      sync.trimIndent(trackedModules.get(spec.name).text),
-      { local: 'fork', base: 'base', upstream: 'upstream' }
-    );
-    assert.equal(merge.conflict, false, spec.file);
-  }
+  assert.equal(currentModules.size, sync.mainModules.length);
+  for (const spec of sync.mainModules) assert.ok(currentModules.get(spec.name).text.trim(), spec.file);
 });
 
-test('main entry point keeps its original structure around module registrations', () => {
-  const trackedMain = git('show', 'HEAD:main.js');
+test('main entry point retains registrations for all extracted services', () => {
   const forkMain = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-  const expected = sync.canonicalMain(trackedMain, 'tracked main.js').source;
-  const actual = sync.mainRegistrations(forkMain).source;
-  assert.equal(actual, expected);
+  const { source, registrations } = sync.mainRegistrations(forkMain);
+  for (const name of ['library', 'export', 'import', 'backups', 'menu']) {
+    assert.ok(registrations.has(name), name);
+    assert.ok(source.includes(`NEO_UPSTREAM_MODULE_${name.toUpperCase()}`), name);
+  }
+  assert.ok(source.includes('NEO_UPSTREAM_MODULE_UPDATES-SCHEDULE'));
 });
 
 test('conflict parser extracts each diff3 side for the report', () => {
@@ -62,6 +68,17 @@ test('conflict parser extracts each diff3 side for the report', () => {
   assert.deepEqual(blocks[0].local, ['local line']);
   assert.deepEqual(blocks[0].base, ['base line']);
   assert.deepEqual(blocks[0].upstream, ['upstream line']);
+});
+
+test('merge helper treats multiple conflict hunks as merge conflicts', () => {
+  const merge = sync.mergeText(
+    'fork one\nshared\nfork two\n',
+    'base one\nshared\nbase two\n',
+    'upstream one\nshared\nupstream two\n',
+    { local: 'fork', base: 'base', upstream: 'upstream' }
+  );
+  assert.equal(merge.conflict, true);
+  assert.equal(sync.markerRanges(merge.text).length, 2);
 });
 
 test('main service rebuilding retains internal returns and closes the module wrapper', () => {

@@ -6,7 +6,16 @@ module.exports = function registerExportHandlers({
   // Export + email
   // ---------------------------------------------------------------------------
 
-  async function renderPDF(html) {
+  const SCREENPLAY_PRINT = {
+    pageSize: 'Letter',
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    printBackground: false,
+    preferCSSPageSize: true,
+    generateTaggedPDF: true,
+    generateDocumentOutline: false
+  };
+
+  async function renderPDF(html, print) {
     // The book reaches the PDF printer as a file, not as a data: URL. A URL
     // stops at 2 MB, and a long novel is bigger than that once it's encoded; a
     // book in Russian or Chinese gets there far sooner, because every letter
@@ -17,7 +26,7 @@ module.exports = function registerExportHandlers({
     const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
     // Letter is a North American habit; most of the world prints A4.
     const letterCountries = ['US', 'CA', 'MX', 'PH'];
-    const options = {
+    const options = print === 'screenplay' ? SCREENPLAY_PRINT : {
       pageSize: letterCountries.includes(app.getLocaleCountryCode()) ? 'Letter' : 'A4',
       margins: { top: 1, bottom: 1, left: 1, right: 1 },
       printBackground: false,
@@ -111,7 +120,7 @@ module.exports = function registerExportHandlers({
     });
   }
 
-  ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntries, base64 }) => {
+  ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntries, base64, print }) => {
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
       defaultPath: path.join(os.homedir(), 'Documents', defaultName + '.' + format),
@@ -125,7 +134,7 @@ module.exports = function registerExportHandlers({
         // pictures (a saved cover) arrive as base64
         fs.writeFileSync(filePath, Buffer.from(content, 'base64'));
       } else if (format === 'pdf') {
-        fs.writeFileSync(filePath, await renderPDF(content));
+        fs.writeFileSync(filePath, await renderPDF(content, print));
       } else {
         fs.writeFileSync(filePath, content, 'utf8');
       }
@@ -141,13 +150,13 @@ module.exports = function registerExportHandlers({
 
   // Writes a timestamped snapshot to the library's Exports folder, then hands it
   // to your email — an outside-the-machine paper trail for provenance.
-  ipcMain.handle('email:draft', async (_e, { to, subject, body, html, defaultName, method }) => {
+  ipcMain.handle('email:draft', async (_e, { to, subject, body, html, defaultName, method, print }) => {
     const { shell } = require('electron');
     const exportsDir = path.join(LIBRARY_DIR, 'Exports');
     if (!fs.existsSync(exportsDir)) fs.mkdirSync(exportsDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const file = path.join(exportsDir, `${defaultName}-${stamp}.pdf`);
-    fs.writeFileSync(file, await renderPDF(html));
+    fs.writeFileSync(file, await renderPDF(html, print));
 
     if (method === 'gmail') {
       // Gmail compose in the browser can't take an attachment from outside,

@@ -7,10 +7,11 @@
 $$('.tab').forEach((tab) => {
   tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   tab.addEventListener('dblclick', async () => {
+    if (!book) return;
     const kind = tab.dataset.tab;
     if (kind !== 'notes' && kind !== 'outline') return;
     const name = await askInput(t('Rename tab'), t('New tab name'), tabName(kind));
-    if (!name) return;
+    if (!name || !book) return;
     book.tabNames[kind] = name;
     tab.textContent = name;
     saveMeta();
@@ -230,6 +231,7 @@ function darlingFromKeyboard() {
 let tabPlaces = {};
 
 function switchTab(name) {
+  if (!book) return;
   const scroller = $('#paper-scroll');
   if (book && currentTab && currentTab !== name) {
     tabPlaces[currentTab] = currentTab === 'manuscript'
@@ -294,4 +296,3 @@ function switchTab(name) {
     });
   }
 }
-

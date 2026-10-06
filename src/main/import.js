@@ -117,6 +117,9 @@ module.exports = function registerImportHandlers({
   async function importFile(fp) {
     const name = path.basename(fp).replace(/\.[^.]+$/, '');
     const ext = path.extname(fp).toLowerCase();
+    if (ext === '.fountain' || ext === '.fdx') {
+      return { name, script: ext.slice(1), source: fs.readFileSync(fp, 'utf8').replace(/^\uFEFF/, '') };
+    }
     let paras = [];
 
     if (ext === '.docx') {
@@ -278,7 +281,7 @@ module.exports = function registerImportHandlers({
   ipcMain.handle('import:files', async (_e, paths) => {
     const out = [];
     for (const fp of paths || []) {
-      if (!/\.(docx|txt|md)$/i.test(fp)) continue;
+      if (!/\.(docx|txt|md|fountain|fdx)$/i.test(fp)) continue;
       try {
         out.push(await importFile(fp));
       } catch (err) {
@@ -294,7 +297,7 @@ module.exports = function registerImportHandlers({
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
       title: t('Bring your manuscripts home'),
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: t('Manuscripts'), extensions: ['docx', 'txt', 'md'] }]
+      filters: [{ name: t('Manuscripts'), extensions: ['docx', 'txt', 'md', 'fountain', 'fdx'] }]
     });
     if (canceled || !filePaths.length) return [];
     const out = [];

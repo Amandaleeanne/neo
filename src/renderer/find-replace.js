@@ -43,7 +43,9 @@ function paintHighlights() {
 // with the manuscript, where ⌘Z can take a Replace All back.
 function searchRoots() {
   if (currentTab === 'manuscript') return book.chapterOrder.map((chId) => document.querySelector(`.chapter[data-id="${chId}"] .chapter-body`));
-  if (currentTab === 'outline') return $$('#outline-list .ol-text');
+  if (currentTab === 'outline') return isScript()
+    ? $$('#outline-list .sp-outline-slug, #outline-list .sp-outline-note')
+    : $$('#outline-list .ol-text');
   if (currentTab === 'darlings') return $$('#darlings-list .darling > :first-child');
   return [$('#aux-editor')];
 }
@@ -178,4 +180,3 @@ $('#search-prev').onclick = () => { freshSearchIfStale(); gotoMatch(searchState.
 $('#replace-one').onclick = replaceCurrent;
 $('#replace-all').onclick = replaceAllMatches;
 $('#search-close').onclick = closeSearch;
-
