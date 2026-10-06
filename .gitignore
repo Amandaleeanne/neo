@@ -13,6 +13,7 @@ dist/
 # personal maintainer notes — not part of the public repo
 RELEASING.md
 GITHUB-SETUP.md
+UPDATE-CONFLICTS.md
 
 # NEO Pocket
 pocket/node_modules/
